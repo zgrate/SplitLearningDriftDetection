@@ -14,11 +14,37 @@ class FlowerClient(NumPyClient):
         self.optimizer = torch.optim.SGD(self.model.parameters(), lr=lr)
 
     def get_parameters(self, config):
-        pass
+        return [val.cpu().detach().numpy() for val in self.model.parameters()]
 
+    def set_parameters(self, parameters):
+        for param, new_param in zip(self.model.parameters(), parameters):
+            param.data = torch.tensor(new_param)
     def fit(self, parameters, config):
-        embedding = self.model(self.data)
-        return [embedding.detach().numpy()], 1, {}
+        # Update client-side model parameters
+        self.set_parameters(parameters)
+
+        # Forward pass on the client-side model
+        intermediate_output = self.model(self.data)
+
+        # Receive all gradients from the server via `config`
+        all_gradients = config.get("server_gradients")
+        client_index = config.get("client_index")
+
+        if all_gradients is not None and client_index is not None:
+            # Use the client-specific gradient
+            server_gradients = torch.tensor(all_gradients[client_index])
+
+            # Backward pass using the gradients from the server
+            intermediate_output.backward(server_gradients)
+            self.optimizer.step()
+
+        # Return updated model parameters and send intermediate_output to server
+        return (
+            self.get_parameters(),
+            len(self.train_data),
+            {"intermediate_output": intermediate_output.detach().numpy()},
+        )
+
 
     def evaluate(self, parameters, config):
         self.model.zero_grad()
