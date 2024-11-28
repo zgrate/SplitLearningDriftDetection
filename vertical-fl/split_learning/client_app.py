@@ -40,12 +40,14 @@ class FlowerClient(NumPyClient):
         print("END BACK EVALUATE")
         cel = torch.nn.CrossEntropyLoss()
         embedding = self.model(self.data)
+        server_gradients = torch.tensor(parameters[int(self.v_split_id)])
+        embedding.backward(server_gradients)
 
-        loss = cel(embedding, torch.from_numpy(parameters[int(self.v_split_id)]))
-        loss.backward()
+        # loss = cel(embedding, torch.from_numpy(parameters[int(self.v_split_id)]))
+        # loss.backward()
         # embedding.backward()
         self.optimizer.step()
-        return float(loss), 1, {}
+        return float(0), 1, {}
 
 
 def client_fn(context: Context):

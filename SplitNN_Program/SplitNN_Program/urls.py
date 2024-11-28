@@ -17,6 +17,12 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path
 
+from neural_network import views as nn_views
+
 urlpatterns = [
     path("admin/", admin.site.urls),
+    path("predict/", nn_views.predict, name="predict"),
+    path("train/", nn_views.train, name="test"),
+    path("test/", nn_views.test, name="train")
+
 ]

@@ -62,14 +62,10 @@ class Strategy(fl.server.strategy.FedAvg):
         if not self.accept_failures and failures:
             return None, {}
 
-        # print(results)metrics_ametrics_aggregatedggregated
-
-        # optimizer = torch.optim.SGD(self.model.parameters(), lr=0.01)
-
-        np_grads = []
-
         results_params = []
         i = 0
+        client_losses = {}
+
         for client, evaluate_results in results:
             # print(evaluate_results)
             print(i)
@@ -79,74 +75,32 @@ class Strategy(fl.server.strategy.FedAvg):
             labels = torch.from_numpy(params[1])
 
             embeddings_aggregated = torch.from_numpy(params[0])
+            embeddings_aggregated.requires_grad_(True)
             print(labels)
             print(embeddings_aggregated)
             # embedding_server = torch.cat(embeddings_aggregated.detach().requires_grad_())
 
             # local_output = torch.cat(self.model.parameters(True))
             self.optimizer.zero_grad()
-            embeding_server = self.model.requires_grad_()
+            # embeding_server = self.model.requires_grad_()
 
             output = self.model(embeddings_aggregated)
             loss = self.criterion(output, labels)
             loss.backward()
             self.optimizer.step()
 
-            # output.backward()
 
-            # grads = output.grad.split([4, 4, 4], dim=1)
+            # print(output)
 
-            print(output)
-
-            gradients = embeding_server.grad
+            gradients = embeddings_aggregated.grad
 
             results_params.append(gradients.detach().numpy())
 
-            # print(self.model[0].weight.grad)
+            client_losses[i] = float(loss)
 
             print("END")
-            # gradients_ = output.grad.data.cpu().numpy()
-            # loss = self.criterion(output, self.label)
-            # loss.backward()
 
-            # print(loss)
-            # self.optimizer.step()
-            # self.optimizer.zero_grad()
-            # print(output)
-
-
-        # # Convert results
-        # embedding_results = [
-        #     torch.from_numpy(parameters_to_ndarrays(fit_res.parameters)[0])
-        #     for _, fit_res in results
-        # ]
-
-        # print(embedding_results)
-
-        # embeddings_aggregated = torch.cat(embedding_results, dim=1)
-        # embedding_server = embeddings_aggregated.detach().requires_grad_()
-        # output = self.model(embedding_server)
-        # loss = self.criterion(output, self.label)
-        # loss.backward()
-        #
-        # self.optimizer.step()
-        # self.optimizer.zero_grad()
-
-        # grads = embedding_server.grad.split([4, 4, 4], dim=1)
-        # np_grads = [grad.numpy() for grad in grads]
-        # parameters_aggregated = ndarrays_to_parameters(np_grads)utput = self.model(embedding_server)
-        #
-        # with torch.no_grad():
-        #     correct = 0
-        #     output = self.model(embedding_server)
-        #     predicted = (output > 0.5).float()
-        #
-        #     correct += (predicted == self.label).sum().item()
-        #
-        #     accuracy = correct / len(self.label) * 100
-        #
-        # metrics_aggregated = {"accuracy": accuracy}
-
+        print("LOSSESS_ARRAY", client_losses)
         return ndarrays_to_parameters(results_params), {}
 
     def aggregate_evaluate(
