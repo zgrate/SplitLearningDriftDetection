@@ -23,6 +23,8 @@ urlpatterns = [
     path("admin/", admin.site.urls),
     path("predict/", nn_views.predict, name="predict"),
     path("train/", nn_views.train, name="test"),
-    path("test/", nn_views.test, name="train")
+    path("test/", nn_views.test, name="train"),
+    path("reset_runner/", nn_views.restart_runner, name="reset_runner"),
+    path("report_client_nn_reset/", nn_views.report_client_nn_reset, name="report_client_nn_reset")
 
 ]
