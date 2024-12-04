@@ -36,7 +36,7 @@ def get_test_training_data(client_id, client_count, mnist=None):
     start = int(client_id * le)
     end = int((client_id + 1) * le)
 
-    return mnist.data[start:end].float(), mnist.targets[start:end].float(), mnist.test_data.float(), mnist.test_labels.float()
+    return mnist.data[start:end].float()/255, mnist.targets[start:end].float(), mnist.test_data.float()/255, mnist.test_labels.float()
 
 
 @dataclass

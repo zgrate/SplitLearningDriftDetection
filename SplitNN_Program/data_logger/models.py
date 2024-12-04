@@ -22,3 +22,7 @@ class TrainingLog(models.Model):
     loss = models.FloatField(default=0)
     epoch = models.IntegerField(default=0)
     server_epoch = models.IntegerField(default=0)
+
+    training_time = models.FloatField(default=0)
+    last_communication_time = models.FloatField(default=0)
+    last_whole_training_time = models.FloatField(default=0)

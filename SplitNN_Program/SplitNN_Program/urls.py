@@ -25,6 +25,9 @@ urlpatterns = [
     path("train/", nn_views.train, name="test"),
     path("test/", nn_views.test, name="train"),
     path("reset_runner/", nn_views.restart_runner, name="reset_runner"),
-    path("report_client_nn_reset/", nn_views.report_client_nn_reset, name="report_client_nn_reset")
+    path("report_client_nn_reset/", nn_views.report_client_nn_reset, name="report_client_nn_reset"),
+    path("save_reports/", nn_views.save_reports, name="save_reports"),
+    path("current_client/", nn_views.current_client, name="current_client"),
+    path("prepare_running/", nn_views.prepare_running, name="prepare_running"),
 
 ]

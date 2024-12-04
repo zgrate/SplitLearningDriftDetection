@@ -8,6 +8,8 @@ TEST_API = "/test/"
 PREDICT_API = "/predict/"
 RESET_API = "/reset_runner/"
 REPORT_NN_RESET = "/report_client_nn_reset/"
+PREPARE_API = "/prepare_running/"
+CURRENT_CLIENT_API = "/current_client/"
 
 class ServerConnection:
     def __init__(self, client_token):
@@ -31,8 +33,8 @@ class ServerConnection:
             print("ERROR", torch.tensor(data['output']).isnan().any(), torch.tensor(data['output']).isinf().any())
             return None
 
-    def train_request(self, intermid_output: Tensor, labels: Tensor, local_epoch: int = 0):
-        response = self.post(TRAIN_API, {"output": intermid_output.tolist(), "labels": labels.tolist(), "local_epoch": local_epoch, "client_id": str(self.client_token)})
+    def train_request(self, intermid_output: Tensor, labels: Tensor, local_epoch: int = 0, last_comm_time: int = 0, last_whole_training_time = 0):
+        response = self.post(TRAIN_API, {"output": intermid_output.tolist(), "labels": labels.tolist(), "local_epoch": local_epoch, "client_id": str(self.client_token), "last_comm_time":last_comm_time, "last_whole_training_time": last_whole_training_time})
         if response.status_code == 200:
             return response.json()
 
@@ -65,3 +67,17 @@ class ServerConnection:
             return True
 
         return False
+
+    def prepare_runner(self, client_amount):
+        response = self.post(PREPARE_API, {"clients_amount": client_amount})
+        if response.status_code == 200:
+            return True
+
+        return False
+
+    def current_client(self):
+        response = self.get(CURRENT_CLIENT_API)
+        if response.status_code == 200:
+            return response.json()['current_client']
+        else:
+            return -1

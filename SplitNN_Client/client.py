@@ -24,11 +24,10 @@ class ClientModel(nn.Module):
             self.reset_nn()
 
     def reset_nn(self):
+
         def init_normal(module):
-            if "weight" in module.__dir__():
-                nn.init.normal_(module.weight)
-            if "bias" in module.__dir__():
-                nn.init.normal_(module.bias)
+            if "reset_parameters" in module.__dir__():
+                module.reset_parameters()
 
         self.model.apply(init_normal)
 
@@ -62,27 +61,41 @@ class TrainingSuite:
         self.data_input_stream = data_input_stream
         self.optimizer = torch.optim.SGD(self.model.parameters(), lr=0.001)
         self.error_counter = 0
+        self.last_comm_time = 0
+        self.last_whole_training_time = 0
 
     def reset_local_nn(self):
         self.model.reset_nn()
         self.epoch = 0
 
-    def train_round(self, depth=False):
+    def train_round(self, synchronizer, depth=False):
+        if synchronizer:
+            while self.server.current_client() != self.client_id:
+                sleep(0.5)
+
+
+        client_start_time = datetime.now()
         self.model.train()
         data = self.data_input_stream.get_data_part()
         output: Tensor = self.model(data.train_data)
+        skip_wait = False
         if output.isnan().any() or output.isinf().any():
             self.log("NaN/Inf values detected. Reseting local NN")
+            skip_wait = True
             # TODO: Send Reset to Server
-            if depth:
-                raise Exception("NaN/Inf values detected and tried to fix. I should instruct server of a problem")
-
-            return self.train_round(depth=True)
+            # if depth:
+            #     raise Exception("NaN/Inf values detected and tried to fix. I should instruct server of a problem")
+            #
+            # return self.train_round(depth=True)
 
         # print(data, output)
-        response = self.server.train_request(output, data.train_labels, self.epoch)
+        response = None
+        if not skip_wait:
+            comms_start_time = datetime.now()
+            response = self.server.train_request(output, data.train_labels, self.epoch, self.last_comm_time, self.last_whole_training_time)
+            self.last_comm_time = (datetime.now()-comms_start_time).total_seconds()
 
-        if response['gradients'] == []:
+        if skip_wait or (response is not None and response['gradients'] == []):
             self.log("OK we have a fuckup. Lets wait a bit for other clients")
             self.error_counter += 1
             if self.error_counter >= 5:
@@ -102,6 +115,8 @@ class TrainingSuite:
             self.epoch += 1
 
             self.log("GOT LOSS", response['loss'])
+
+        self.last_whole_training_time = (datetime.now()-client_start_time).total_seconds()
 
     def test_nn(self):
         self.model.train()
@@ -133,16 +148,17 @@ class TrainingSuite:
         self.logger_file.close()
 
 
-def run_client(client_id, max_client, folder):
+def run_client(client_id, max_client, folder, thread_runner, synchronizer):
     mnist_input = MNISTDataInputStream(*get_test_training_data(client_id, max_client))
     d = mnist_input.get_data_part()
 
     with TrainingSuite(client_id, mnist_input, folder) as t:
-        while True:
+        while not thread_runner.get_global_stop():
             try:
-                t.train_round()
+
+                t.train_round(synchronizer)
                 # t.test_nn()
                 # t.log("PREDICTED LABEL: ", t.predict(d.train_data[0].view(1, -1)), "EXPECTED", d.test_labels[0])
-                sleep(1)
             except KeyboardInterrupt:
                 break
+        t.log("Stopping client")
