@@ -1,3 +1,4 @@
+import json
 from datetime import datetime
 from os import path
 from time import sleep
@@ -51,7 +52,7 @@ class TrainingSuite:
             self.logger_file.write(s)
             self.logger_file.flush()
 
-    def __init__(self, client_id, data_input_stream: AbstractDataInputStream, folder: str = "folder"):
+    def __init__(self, client_id, data_input_stream: AbstractDataInputStream, optimizer=torch.optim.SGD, learning_rate=0.001, folder: str = "folder"):
         self.model = ClientModel()
         self.epoch = 0
         self.folder = folder
@@ -59,7 +60,7 @@ class TrainingSuite:
         self.server = ServerConnection(client_id)
         self.server_url = "http://localhost:8000"
         self.data_input_stream = data_input_stream
-        self.optimizer = torch.optim.SGD(self.model.parameters(), lr=0.001)
+        self.optimizer = optimizer(self.model.parameters(), lr=learning_rate)
         self.error_counter = 0
         self.last_comm_time = 0
         self.last_whole_training_time = 0
@@ -117,6 +118,7 @@ class TrainingSuite:
             self.log("GOT LOSS", response['loss'])
 
         self.last_whole_training_time = (datetime.now()-client_start_time).total_seconds()
+        return response['loss']
 
     def test_nn(self):
         self.model.train()
@@ -146,17 +148,19 @@ class TrainingSuite:
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.log("Close file at", datetime.now())
         self.logger_file.close()
+        torch.save(self.model.state_dict(), path.join(self.folder, f"client_state_{self.client_id}.pt"))
 
 
-def run_client(client_id, max_client, folder, thread_runner, synchronizer):
-    mnist_input = MNISTDataInputStream(*get_test_training_data(client_id, max_client))
-    d = mnist_input.get_data_part()
+def run_client(client_id, thread_runner):
+    mnist_input = MNISTDataInputStream(*get_test_training_data(client_id, thread_runner.clients))
+    # d = mnist_input.get_data_part()
 
-    with TrainingSuite(client_id, mnist_input, folder) as t:
+    with TrainingSuite(client_id, mnist_input, learning_rate=thread_runner.client_learning_rate, folder=thread_runner.folder) as t:
         while not thread_runner.get_global_stop():
             try:
+                loss = t.train_round(thread_runner.sync_mode)
+                thread_runner.client_response(client_id, {"loss": loss})
 
-                t.train_round(synchronizer)
                 # t.test_nn()
                 # t.log("PREDICTED LABEL: ", t.predict(d.train_data[0].view(1, -1)), "EXPECTED", d.test_labels[0])
             except KeyboardInterrupt:

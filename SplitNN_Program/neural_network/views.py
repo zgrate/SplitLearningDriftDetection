@@ -3,7 +3,8 @@ import json
 import os
 import threading
 
-from django.db.models import StdDev, Avg
+import torch
+from django.db.models import StdDev, Avg, Min, Max, Sum
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
@@ -116,6 +117,7 @@ def report_client_nn_reset(request):
 
 @api_view(["POST"])
 def restart_runner(request):
+
     TrainingLog.objects.all().delete()
     DataTransferLog.objects.all().delete()
     global_server_model.reset_local_nn()
@@ -129,24 +131,38 @@ def restart_runner(request):
 
 @api_view(["POST"])
 def save_reports(request):
-    if "details" in request.data and request.data["details"] is not None:
-        details = request.data["details"]
-    else:
-        details = {}
+
+    details = request.data.get("details", {})
+    print(details)
 
     qs = TrainingLog.objects.all().order_by('created_at')
-    details["logs_timer"] = (qs.last().created_at - qs.first().created_at)
+    details["logs_timer"] = (qs.last().created_at - qs.first().created_at).total_seconds()
+    details["server_model"] = str(global_server_model.model.model)
+    details["server_optimiser"] = str(global_server_model.optimizer)
+    details["server_loss_function"] = str(global_server_model.criterion)
 
     results = TrainingLog.objects.aggregate(
-        average_time_client=Avg("last_whole_training_time"),
-        std_time_client=StdDev("last_whole_training_time"),
+        average_total_time=Avg("last_whole_training_time"),
+        std_total_time=StdDev("last_whole_training_time"),
         average_comm_time=Avg("last_communication_time"),
         std_comm_time=StdDev("last_communication_time"),
         average_server_training_time=Avg("training_time"),
         std_server_training_time=StdDev("training_time"),
+        minimal_loss=Min("loss"),
+        max_client_epoch=Max("epoch"),
+        server_epoch=Max("server_epoch")
     )
-    print(results)
-    return Response()
+
+    results_network = DataTransferLog.objects.aggregate(
+        total_network_data = Sum("data_transfer_len"),
+    )
+
+
+    nn_models.ClientModel()
+
+
+    details['results'] = {**results, **results_network}
+
 
     folder = datetime.datetime.now().strftime("serverlogs/serverlogs-%Y%m%d%H%M%S")
     os.mkdir(folder)
@@ -155,7 +171,10 @@ def save_reports(request):
         return os.path.join(folder, file)
 
     with open(os.path.join(folder, "details.json"), "w") as f:
-        json.dump(details, f)
+        json.dump(details, f, indent=4)
+
+    #Save Model to file
+    torch.save(global_server_model.model.state_dict(), j("server_model.pt"))
 
     # Save Training log to CSV
     df1 = pd.DataFrame(TrainingLog.objects.all().values())
@@ -196,6 +215,7 @@ def prepare_running(request):
 
     clients_amount = request.data['clients_amount']
     current_client = 0
+    global_server_model.reinit_optimiser(**request.data['server_optimiser_options'])
     return Response({'clients_amount': clients_amount})
 
 

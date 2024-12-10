@@ -45,7 +45,8 @@ class ServerModel:
         else:
             self.model.reset_nn()
 
-        self.optimizer = optim.SGD(self.model.parameters(), lr=0.001)
+        self.optimizer = None
+        self.reinit_optimiser(lr=0.01)
         self.criterion = nn.CrossEntropyLoss()
         self.error_counter = 0
 
@@ -67,6 +68,11 @@ class ServerModel:
     def optimizer_pass(self):
         self.optimizer.step()
         self.optimizer.zero_grad()
+
+    def reinit_optimiser(self, **options):
+        print(options)
+        self.optimizer = optim.SGD(self.model.parameters(), **options)
+        print(self.optimizer)
 
     def train_input(self, input_list: list, input_labels: list, depth=0):
         self.model.train()
