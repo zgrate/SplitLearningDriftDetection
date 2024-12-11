@@ -1,7 +1,9 @@
 from dataclasses import dataclass
 from typing import Dict
 
+import torch.utils.data
 from torch import Tensor
+from torch.utils.data import Dataset
 from torchvision.datasets import MNIST
 
 
@@ -36,7 +38,10 @@ def get_test_training_data(client_id, client_count, mnist=None):
     start = int(client_id * le)
     end = int((client_id + 1) * le)
 
-    return mnist.data[start:end].float()/255, mnist.targets[start:end].float(), mnist.test_data.float()/255, mnist.test_labels.float()
+    part_data = mnist.data[start:end].float()/255
+    part_targets = mnist.targets[start:end].long()
+
+    return part_data, part_targets, [], []
 
 
 @dataclass
@@ -61,3 +66,20 @@ class MNISTDataInputStream(AbstractDataInputStream):
 
     def get_data_part(self):
         return self.data
+
+
+class DataInputDataset(Dataset):
+    def __init__(self, data_input_stream: AbstractDataInputStream, train=True):
+        super().__init__()
+        self.data_input_stream = data_input_stream
+        self.train = train
+
+
+    def __getitem__(self, idx):
+        if self.train:
+            return self.data_input_stream.get_data_part().train_data[idx], self.data_input_stream.get_data_part().train_labels[idx]
+        else:
+            return self.data_input_stream.get_data_part().test_data[idx], self.data_input_stream.get_data_part().test_labels[idx]
+
+    def __len__(self):
+        return len(self.data_input_stream.get_data_part().train_data if self.train else self.data_input_stream.get_data_part().test_data)

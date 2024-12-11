@@ -35,7 +35,7 @@ class ServerConnection:
             print("ERROR", torch.tensor(data['output']).isnan().any(), torch.tensor(data['output']).isinf().any())
             return None
 
-    def train_request(self, intermid_output: Tensor, labels: Tensor, local_epoch: int = 0, last_comm_time: int = 0,
+    def train_request(self, intermid_output: Tensor, labels: Tensor, local_epoch: int = 0, last_comm_time: float = 0,
                       last_whole_training_time=0):
         response = self.post(TRAIN_API,
                              {"output": intermid_output.tolist(), "labels": labels.tolist(), "local_epoch": local_epoch,
@@ -46,9 +46,9 @@ class ServerConnection:
 
         return None
 
-    def test_request(self, output: Tensor, test_labels: Tensor):
+    def test_request(self, output: Tensor, test_labels: Tensor, local_epoch):
         response = self.post(TEST_API, {"output": output.tolist(), "labels": test_labels.tolist(),
-                                        "client_id": str(self.client_token)})
+                                        "client_id": str(self.client_token), "local_epoch": local_epoch})
         if response.status_code == 200:
             return response.json()
 

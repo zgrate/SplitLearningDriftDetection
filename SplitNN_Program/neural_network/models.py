@@ -116,11 +116,12 @@ class ServerModel:
         return gradients, float(loss)
 
     def test(self, input_list: list, input_labels: list):
-        self.model.train()
+        self.model.eval()
         input_data = torch.tensor(input_list)
         labels = torch.tensor(input_labels).long()
         output = self.model(input_data)
         loss = self.criterion(output, labels)
+
         if loss.isnan().any() or loss.isinf().any():
             print("Reset of NN Needed")
             return None

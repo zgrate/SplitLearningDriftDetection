@@ -84,13 +84,15 @@ def train(request):
 @api_view(["POST"])
 def test(request):
     client_id = request.data["client_id"]
+    local_epoch = request.data["local_epoch"]
 
-    report_usage("test", request.data, client_id, direction_to_server=True)
+    report_usage("test", sys.getsizeof(request.data), client_id, direction_to_server=True)
 
     with lock:
         loss = global_server_model.test(request.data['output'], request.data['labels'])
 
     report_usage("test", loss, client_id, direction_to_server=False)
+    report_training(float(loss), client_id, local_epoch, global_server_model.epoch, 0, 0, 0, mode="test")
 
     return Response({"loss": loss})
 
@@ -156,9 +158,6 @@ def save_reports(request):
     results_network = DataTransferLog.objects.aggregate(
         total_network_data = Sum("data_transfer_len"),
     )
-
-
-    nn_models.ClientModel()
 
 
     details['results'] = {**results, **results_network}

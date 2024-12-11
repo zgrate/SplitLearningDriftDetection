@@ -23,6 +23,7 @@ class SplitLearningRunner:
         self.client_losses = {}
         self.client_learning_rate = client_learning_rate
         self.server_learning_rate = server_learning_rate
+        self.testing = True
 
     def client_response(self, client_id, data):
         self.client_losses[client_id] = data['loss']
@@ -113,15 +114,15 @@ if __name__ == "__main__":
             "server_learning_rate": 0.001,
         }
         settings = [
-            {"clients": 2, **default},
-            {"clients": 3, **default},
-            {"clients": 4, **default},
+            # {"clients": 2, **default},
             {"clients": 5, **default},
-            {"clients": 6, **default},
-            {"clients": 7, **default},
-            {"clients": 8, **default},
-            {"clients": 9, **default},
-            {"clients": 10, **default},
+            # {"clients": 4, **default},
+            # {"clients": 5, **default},
+            # {"clients": 6, **default},
+            # {"clients": 7, **default},
+            # {"clients": 8, **default},
+            # {"clients": 9, **default},
+            # {"clients": 10, **default},
         ]
         for setting in settings:
             print("Running", setting)
