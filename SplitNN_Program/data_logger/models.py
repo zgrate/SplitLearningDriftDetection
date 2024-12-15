@@ -18,7 +18,7 @@ class TrainingLog(models.Model):
     client_id = models.CharField(max_length=255, null=True, default=None)
 
     mode = models.CharField(max_length=255, null=True, default='training',
-                            choices=[(x, x) for x in ['training', 'reset', 'validation', 'error']])
+                            choices=[(x, x) for x in ['training', 'reset', 'validation', 'error', 'test']])
 
     loss = models.FloatField(default=0)
     epoch = models.IntegerField(default=0)
