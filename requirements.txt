@@ -212,7 +212,6 @@ tzdata==2024.2
 url-normalize==1.4.3
 urllib3==2.2.3
 uvicorn==0.31.1
--e git+ssh://git@github.com/zgrate/SplitLearningDriftDetection.git@bd64cdccd4fe7214098759fd2ea1a9d6505bbb68#egg=vertical_fl&subdirectory=vertical-fl
 wcwidth==0.2.13
 Werkzeug==3.0.4
 widgetsnbextension==4.0.13

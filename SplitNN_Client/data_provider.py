@@ -1,9 +1,11 @@
 from dataclasses import dataclass
 from typing import Dict
 
+import numpy
 import torch.utils.data
 from torch import Tensor
 from torch.utils.data import Dataset
+from torchvision import transforms
 from torchvision.datasets import MNIST
 
 
@@ -33,13 +35,18 @@ def get_test_training_data(client_id, client_count, mnist=None):
     if mnist is None:
         mnist = MNIST("mnists/", download=True)
 
-    le = len(mnist.data) / client_count
+
+    # print(data)
+
+    le = len(mnist.train_data) / client_count
 
     start = int(client_id * le)
     end = int((client_id + 1) * le)
 
-    part_data = mnist.data[start:end].float()/255
-    part_targets = mnist.targets[start:end].long()
+
+
+    part_data = mnist.train_data[start:end].float()/255
+    part_targets = mnist.train_labels[start:end].long()
 
     return part_data, part_targets, [], []
 
