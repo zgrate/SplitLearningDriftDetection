@@ -94,6 +94,8 @@ def test(request):
     report_usage("test", loss, client_id, direction_to_server=False)
     report_training(float(loss), client_id, local_epoch, global_server_model.epoch, 0, 0, 0, mode="test")
 
+    print("Trying to drift detect", global_server_model.drift_detection_suite.drift_detection_run(), global_server_model.drift_detection_suite.drift_detection_class.get_regression())
+
     return Response({"loss": loss})
 
 

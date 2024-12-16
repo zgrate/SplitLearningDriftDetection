@@ -5,6 +5,7 @@ from django.db import models
 from torch import nn, Tensor, optim
 
 from data_logger.models import TrainingLog
+from drift_detection.drift_detectors import DriftDetectionSuite, SimpleAverageDriftDetection
 
 
 # Create your models here.
@@ -37,8 +38,10 @@ class ServerModelWrapper(nn.Module):
 
 class ServerModel:
 
-    def __init__(self, input_dict=None):
+    def __init__(self, input_dict=None, drift_detection_suite=DriftDetectionSuite(SimpleAverageDriftDetection(filter_mode="test", client_only_mode=True))):
         self.model = ServerModelWrapper()
+        self.drift_detection_suite = drift_detection_suite
+
         self.epoch = 0
         if input_dict is not None:
             self.model.load_state_dict(input_dict)
