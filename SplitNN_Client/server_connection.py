@@ -82,8 +82,8 @@ class ServerConnection:
 
         return False
 
-    def prepare_runner(self, client_amount, server_optimiser_options):
-        response = self.post(PREPARE_API, {"clients_amount": client_amount, "server_optimiser_options": server_optimiser_options})
+    def prepare_runner(self, all_props):
+        response = self.post(PREPARE_API, all_props)
         if response.status_code == 200:
             return True
 

@@ -1,4 +1,5 @@
 import json
+import os
 
 import torch
 from django.db import models
@@ -20,7 +21,7 @@ class ServerModelWrapper(nn.Module):
             nn.Linear(128, out_features=100),
             nn.ReLU(),
             nn.Linear(100, out_features=10),
-            nn.LogSoftmax(dim=1)
+            # nn.LogSoftmax(dim=1)
         )
 
     def reset_nn(self):
@@ -52,16 +53,17 @@ class ServerModel:
         self.reinit_optimiser(lr=0.01)
         self.criterion = nn.CrossEntropyLoss()
         self.error_counter = 0
+        self.options = None
 
     @classmethod
     def load(cls, file):
-        with open(file, 'r') as f:
-            input_dict = json.load(f)
-            return ServerModel(input_dict)
+        t = torch.load(file)
+        # self.model.load_state_dict(t)
+        return ServerModel(t)
 
     def save(self, target_file):
-        with open(target_file, 'w') as f:
-            json.dump(self.model.state_dict(), f)
+        os.makedirs(target_file, exist_ok=True)
+        torch.save(global_server_model.model.state_dict(), os.path.join(target_file, "server.pt"))
 
     def reset_local_nn(self):
         TrainingLog(mode="reset", server_epoch=self.epoch).save()

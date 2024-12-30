@@ -18,7 +18,7 @@ class DetectorBase:
         self.client_only_mode = client_only_mode
 
     def is_drifting(self) -> bool:
-        raise NotImplemented("Please implement")
+        raise NotImplemented("Please implement drifting detector")
 
     def get_last_object(self) -> TrainingLog:
         return self._get_objects().first()
@@ -79,6 +79,16 @@ class DetectorBase:
             fit = np.polyfit(range(len(a)), a, deg=1)
             print(fit[0], fit[0] > 0.1)
             return fit[0], fit[0] > 0.1
+
+class LastRoundCompareDriftDetector(DetectorBase):
+    def is_drifting(self) -> bool:
+        values = self.get_last_X_values(count_elements=2)
+
+        drift_value =  values[0] - values[1]
+
+        is_drifting = drift_value > self.threshold
+        self.report_drifting(values[1], values[0], drift_value, is_drifting)
+        return is_drifting
 
 class SimpleAverageDriftDetection(DetectorBase):
 

@@ -1,4 +1,5 @@
 import json
+import os.path
 import random
 from datetime import datetime
 from os import path
@@ -56,13 +57,16 @@ class TrainingSuite:
             self.logger_file.flush()
 
     def __init__(self, client_id, data_input_stream: AbstractDataInputStream, optimizer=torch.optim.SGD,
-                 learning_rate=0.001, folder: str = "folder"):
+                 learning_rate=0.001, folder: str = "folder", load_save_data_directory: str = None, load_only=False, reset_nn=True):
         self.model = ClientModel()
         self.epoch = 0
         self.folder = folder
         self.client_id = client_id
         self.server = ServerConnection(client_id)
         self.server_url = "http://localhost:8000"
+        self.load_save_data_directory = load_save_data_directory
+        self.load_only = load_only
+        self.reset_nn = reset_nn
 
         if data_input_stream is not None:
             self.dataset = DataInputDataset(data_input_stream)
@@ -92,7 +96,6 @@ class TrainingSuite:
         # print(X.shape, y.shape)
         losses = []
         for X, y in iter(self.training_data_loader):
-            self.log("Batching interation ", len(losses))
             output: Tensor = self.model(X)
 
             if output.isnan().any() or output.isinf().any():
@@ -113,7 +116,7 @@ class TrainingSuite:
 
         self.epoch += 1
         loss = sum(losses) / len(losses)
-        self.log("GOT LOSS", loss)
+        self.log("GOT TEST LOSS", loss)
         #TODO: I should report avrg loss, not loss of each iteration here!
         #Only the case when batching
 
@@ -149,6 +152,12 @@ class TrainingSuite:
     def __enter__(self):
         self.logger_file = open(path.join(self.folder, f"client_{self.client_id}.log"), "w")
         self.log("File opened at", datetime.now())
+        if self.load_save_data_directory and not self.reset_nn:
+            p = path.join(self.load_save_data_directory, f"{self.client_id}.pt")
+            if os.path.exists(p):
+                t = torch.load(p)
+                self.model.load_state_dict(t)
+
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
@@ -156,20 +165,36 @@ class TrainingSuite:
         self.logger_file.close()
         torch.save(self.model.state_dict(), path.join(self.folder, f"client_state_{self.client_id}.pt"))
 
+        if self.load_save_data_directory and not self.load_only:
+            os.makedirs(self.load_save_data_directory, exist_ok=True)
+            torch.save(self.model.state_dict(), path.join(self.load_save_data_directory, f"client_{self.client_id}.pt"))
+
 
 def run_client(client_id, thread_runner):
     mnist_input = MNISTDataInputStream(*get_test_training_data(client_id, thread_runner.clients))
     # d = mnist_input.get_data_part()
 
     with TrainingSuite(client_id, mnist_input, learning_rate=thread_runner.client_learning_rate,
-                       folder=thread_runner.folder) as t:
+                       folder=thread_runner.folder, load_save_data_directory=thread_runner.all_props_dict['client_load_directory'], load_only=thread_runner.all_props_dict['load_only'], reset_nn=thread_runner.all_props_dict['reset_nn']) as t:
         while not thread_runner.get_global_stop():
             try:
-                loss = t.train_round(thread_runner.sync_mode)
-                thread_runner.client_response(client_id, {"loss": loss})
+                if thread_runner.all_props_dict['mode'] == "train":
+                    loss = t.train_round(thread_runner.sync_mode)
+                    thread_runner.client_response(client_id, {"loss": loss})
 
-                if thread_runner.testing:
-                    t.test_nn()
+                if thread_runner.all_props_dict['mode'] == "test":
+                    if t.test_nn() < 0.3:
+                        r = random.randint(0, len(mnist_input.data.test_data))
+                        print("Prediction", t.predict(mnist_input.data.test_data[r]), mnist_input.data.test_labels[r])
+
+                if thread_runner.all_props_dict['mode'] == "predict_random":
+                    r = random.randint(0, len(mnist_input.data.train_data))
+                    p = t.predict(mnist_input.data.train_data[r].view(1, 1, 28, 28))
+                    pred = p['predicted'][0]
+                    min_index, min_value = max(enumerate(pred), key=lambda x: x[1])
+                    print(pred)
+                    print("Prediction",  min_index, min_value, mnist_input.data.train_labels[r], p['item'])
+                    sleep(5)
 
             except KeyboardInterrupt:
                 break

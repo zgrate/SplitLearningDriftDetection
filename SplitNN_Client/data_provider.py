@@ -67,6 +67,9 @@ class AbstractDataInputStream:
 
 class MNISTDataInputStream(AbstractDataInputStream):
 
+    def start_drifting(self):
+        pass
+
     def __init__(self, train, labels, test, labels_test):
         super().__init__()
         self.data = DataChunk(train, labels, test, labels_test)

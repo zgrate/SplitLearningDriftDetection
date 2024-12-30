@@ -10,7 +10,8 @@ from SplitNN_Client.server_connection import ServerConnection
 
 class SplitLearningRunner:
 
-    def __init__(self, clients, client_learning_rate, *, server_learning_rate=0.001, sync_mode=False, seconds_running=0, client_epochs_limit=0, target_loss=0, all_client_loss=False):
+    def __init__(self, all_props_dict, clients, client_learning_rate, *, server_learning_rate=0.001, sync_mode=False, seconds_running=0, client_epochs_limit=0, target_loss=0, all_client_loss=False, **kwargs):
+        self.all_props_dict = all_props_dict
         self.global_stop = False
         self.clients = clients
         self.client_epochs_limit = client_epochs_limit
@@ -40,8 +41,7 @@ class SplitLearningRunner:
     def start_runner(self):
         print("Starting runner in 5 seconds")
         sleep(5)
-        self.server_connection.reset_runner()
-        self.server_connection.prepare_runner(self.clients, {"lr": self.server_learning_rate})
+        self.server_connection.prepare_runner(self.all_props_dict)
 
         os.mkdir(self.folder)
 
@@ -105,17 +105,37 @@ if __name__ == "__main__":
 
     if True:
         default = {
+            "clients": 5,
             "sync_mode": False,
             "seconds_running": 0,
             "client_epochs_limit": 0,
             "target_loss": 1,
             "all_client_loss": True,
+            "server_optimiser_options": {
+                "lr": 0.001,
+            },
             "client_learning_rate": 0.001,
-            "server_learning_rate": 0.001,
+            "server_load_save_data": None,
+            "client_load_directory": None,
+            "load_only": False,
+            "reset_logs": True,
+            "reset_nn": True,
+            "mode": "train" #'train', 'predict_random'
         }
+        clients = 5
+        server_load_save_data = "server_test_1"
+        client_load_directory = "client_test_1"
+
+        params = {
+            "clients": clients,
+            'server_load_save_data': server_load_save_data,
+            'client_load_directory': client_load_directory
+        }
+
         settings = [
             # {"clients": 2, **default},
-            {"clients": 5, **default},
+            {**default, **params, 'target_loss': 0.2, 'reset_logs': True, 'reset_nn': True, "mode": "train"},
+            {**default, **params, 'reset_logs': False, 'reset_nn': False, "load_only": True, "mode": "predict_random"},
             # {"clients": 4, **default},
             # {"clients": 5, **default},
             # {"clients": 6, **default},
@@ -126,7 +146,7 @@ if __name__ == "__main__":
         ]
         for setting in settings:
             print("Running", setting)
-            SplitLearningRunner(**setting).start_runner()
+            SplitLearningRunner(setting, **setting).start_runner()
             sleep(30)
         exit(0)
 

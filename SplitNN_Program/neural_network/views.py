@@ -8,7 +8,7 @@ from django.db.models import StdDev, Avg, Min, Max, Sum
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
-from data_logger.models import DataTransferLog, TrainingLog
+from data_logger.models import DataTransferLog, TrainingLog, DriftingLogger
 from neural_network.models import global_server_model
 
 import sys
@@ -103,11 +103,14 @@ def test(request):
 def predict(request):
     client_id = request.data["client_id"]
 
-    report_usage("predict", request.data, client_id, direction_to_server=True)
+    report_usage("predict", sys.getsizeof(request.data), client_id, direction_to_server=True)
     with lock:
-        data = {"predicted": global_server_model.predict(request.data['output'])}
+        predicted = global_server_model.predict(request.data['output'])
+        probabilities = torch.exp(predicted)
 
-    report_usage("predict", data, client_id, direction_to_server=False)
+        data = {"predicted": probabilities, "item": torch.argmax(probabilities, dim=1).item()}
+
+    report_usage("predict", sys.getsizeof(data), client_id, direction_to_server=False)
 
     return Response(data)
 
@@ -119,13 +122,10 @@ def report_client_nn_reset(request):
     TrainingLog(mode="reset", client_id=client_id, epoch=local_epochs, server_epoch=global_server_model.epoch).save()
 
 
-@api_view(["POST"])
-def restart_runner(request):
+# @api_view(["POST"])
+# def restart_runner(request):
 
-    TrainingLog.objects.all().delete()
-    DataTransferLog.objects.all().delete()
-    global_server_model.reset_local_nn()
-    return Response()
+#     return Response()
 
 
 #
@@ -137,13 +137,16 @@ def restart_runner(request):
 def save_reports(request):
 
     details = request.data.get("details", {})
-    print(details)
+
+    if global_server_model.options['server_load_save_data']:
+        global_server_model.save(global_server_model.options['server_load_save_data'])
 
     qs = TrainingLog.objects.all().order_by('created_at')
     details["logs_timer"] = (qs.last().created_at - qs.first().created_at).total_seconds()
     details["server_model"] = str(global_server_model.model.model)
     details["server_optimiser"] = str(global_server_model.optimizer)
     details["server_loss_function"] = str(global_server_model.criterion)
+    details["server_options"] = global_server_model.options
 
     results = TrainingLog.objects.aggregate(
         average_total_time=Avg("last_whole_training_time"),
@@ -213,11 +216,41 @@ def save_reports(request):
 @api_view(['POST'])
 def prepare_running(request):
     global clients_amount, current_client
+    options = request.data
+    global_server_model.options = request.data
+    # default = {
+    #     "clients": 5,
+    #     "sync_mode": False,
+    #     "seconds_running": 0,
+    #     "client_epochs_limit": 0,
+    #     "target_loss": 1,
+    #     "all_client_loss": True,
+    #     "server_optimiser_options": {
+    #         "lr": 0.001,
+    #     },
+    #     "client_learning_rate": 0.001,
+#         "server_load_save_data": None,
+    #     "client_load_directory": None,
+    #     "reset_logs": True
+    # }
 
-    clients_amount = request.data['clients_amount']
+    if options["reset_logs"]:
+        TrainingLog.objects.all().delete()
+        DataTransferLog.objects.all().delete()
+        DriftingLogger.objects.all().delete()
+
+    clients_amount = options['clients']
     current_client = 0
-    global_server_model.reinit_optimiser(**request.data['server_optimiser_options'])
-    return Response({'clients_amount': clients_amount})
+
+    if options['server_load_save_data'] and not options['reset_nn']:
+        global_server_model.load(os.path.join(options['server_load_save_data'], "server.pt"))
+    else:
+        global_server_model.reset_local_nn()
+
+
+    global_server_model.reinit_optimiser(**options['server_optimiser_options'])
+
+    return Response(options)
 
 
 @api_view(['GET'])
