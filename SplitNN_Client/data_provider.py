@@ -4,9 +4,12 @@ from typing import Dict
 import numpy
 import torch.utils.data
 from torch import Tensor
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, DataLoader
+from torch.utils.data.dataloader import _BaseDataLoaderIter
 from torchvision import transforms
 from torchvision.datasets import MNIST
+
+from SplitNN_Client.drifting_simulation import AbstractDrifter
 
 
 # def client_fn(context: Context):
@@ -93,3 +96,22 @@ class DataInputDataset(Dataset):
 
     def __len__(self):
         return len(self.data_input_stream.get_data_part().train_data if self.train else self.data_input_stream.get_data_part().test_data)
+
+
+class DriftDatasetLoader(DataLoader):
+
+    iterator: _BaseDataLoaderIter
+
+    def __init__(self, dataset: Dataset, drifter: AbstractDrifter, *args, **kwargs):
+        super().__init__(dataset, *args, **kwargs)
+        self.drifter = drifter
+        self.active = False
+
+    def __iter__(self):
+        self.iterator = super().__iter__()
+        #TODO: Here we need to init the drifter
+        return self
+
+    def __next__(self):
+        next_items = next(self.iterator)
+        return self.drifter.next_drifting(next_items) if self.active else next_items

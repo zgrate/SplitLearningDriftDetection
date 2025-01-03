@@ -84,6 +84,7 @@ class ServerConnection:
 
     def prepare_runner(self, all_props):
         response = self.post(PREPARE_API, all_props)
+        print(response.content)
         if response.status_code == 200:
             return True
 

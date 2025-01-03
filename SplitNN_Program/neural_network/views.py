@@ -107,7 +107,7 @@ def predict(request):
     with lock:
         predicted = global_server_model.predict(request.data['output'])
         probabilities = torch.exp(predicted)
-
+        print(probabilities)
         data = {"predicted": probabilities, "item": torch.argmax(probabilities, dim=1).item()}
 
     report_usage("predict", sys.getsizeof(data), client_id, direction_to_server=False)
@@ -138,7 +138,7 @@ def save_reports(request):
 
     details = request.data.get("details", {})
 
-    if global_server_model.options['server_load_save_data']:
+    if global_server_model.options['server_load_save_data'] and not global_server_model.options['load_only']:
         global_server_model.save(global_server_model.options['server_load_save_data'])
 
     qs = TrainingLog.objects.all().order_by('created_at')
@@ -215,8 +215,10 @@ def save_reports(request):
 
 @api_view(['POST'])
 def prepare_running(request):
+    # print("CO JEST??")
     global clients_amount, current_client
     options = request.data
+    # print("test", options)
     global_server_model.options = request.data
     # default = {
     #     "clients": 5,
@@ -241,10 +243,13 @@ def prepare_running(request):
 
     clients_amount = options['clients']
     current_client = 0
-
+    print(options)
     if options['server_load_save_data'] and not options['reset_nn']:
+        print("Loading server file", os.path.join(options['server_load_save_data'], "server.pt"), "Created on", os.path.getctime(os.path.join(options['server_load_save_data'], "server.pt")))
         global_server_model.load(os.path.join(options['server_load_save_data'], "server.pt"))
+        global_server_model.model.eval()
     else:
+        print("Resetting server NN")
         global_server_model.reset_local_nn()
 
 

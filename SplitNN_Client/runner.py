@@ -129,12 +129,14 @@ if __name__ == "__main__":
         params = {
             "clients": clients,
             'server_load_save_data': server_load_save_data,
-            'client_load_directory': client_load_directory
+            'client_load_directory': client_load_directory,
+            # "mode": "test"
         }
 
         settings = [
             # {"clients": 2, **default},
-            {**default, **params, 'target_loss': 0.2, 'reset_logs': True, 'reset_nn': True, "mode": "train"},
+            # {**default, **params, 'target_loss': 1, 'reset_logs': True, 'reset_nn': True, "mode": "train"},
+            # {**default, **params, 'target_loss': 0.1, 'reset_logs': False, "load_only": False, 'reset_nn': False, "mode": "train"},
             {**default, **params, 'reset_logs': False, 'reset_nn': False, "load_only": True, "mode": "predict_random"},
             # {"clients": 4, **default},
             # {"clients": 5, **default},
@@ -162,4 +164,4 @@ if __name__ == "__main__":
     }
     print("Running runner with settings")
     print(setting)
-    SplitLearningRunner(**setting).start_runner()
+    SplitLearningRunner(all_props_dict=setting, **setting).start_runner()

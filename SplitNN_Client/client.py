@@ -152,11 +152,14 @@ class TrainingSuite:
     def __enter__(self):
         self.logger_file = open(path.join(self.folder, f"client_{self.client_id}.log"), "w")
         self.log("File opened at", datetime.now())
+        # print(self.load_save_data_directory, self.load_only, self.reset_nn)
         if self.load_save_data_directory and not self.reset_nn:
-            p = path.join(self.load_save_data_directory, f"{self.client_id}.pt")
+            p = path.join(self.load_save_data_directory, f"client_{self.client_id}.pt")
             if os.path.exists(p):
-                t = torch.load(p)
+                self.log("Loading file ", p, "created at", os.path.getctime(p))
+                t = torch.load(p, weights_only=True)
                 self.model.load_state_dict(t)
+                self.model.eval()
 
         return self
 
@@ -173,9 +176,10 @@ class TrainingSuite:
 def run_client(client_id, thread_runner):
     mnist_input = MNISTDataInputStream(*get_test_training_data(client_id, thread_runner.clients))
     # d = mnist_input.get_data_part()
-
+    print(mnist_input.data.train_data.shape)
     with TrainingSuite(client_id, mnist_input, learning_rate=thread_runner.client_learning_rate,
                        folder=thread_runner.folder, load_save_data_directory=thread_runner.all_props_dict['client_load_directory'], load_only=thread_runner.all_props_dict['load_only'], reset_nn=thread_runner.all_props_dict['reset_nn']) as t:
+        t.test_nn()
         while not thread_runner.get_global_stop():
             try:
                 if thread_runner.all_props_dict['mode'] == "train":
@@ -183,17 +187,23 @@ def run_client(client_id, thread_runner):
                     thread_runner.client_response(client_id, {"loss": loss})
 
                 if thread_runner.all_props_dict['mode'] == "test":
-                    if t.test_nn() < 0.3:
-                        r = random.randint(0, len(mnist_input.data.test_data))
-                        print("Prediction", t.predict(mnist_input.data.test_data[r]), mnist_input.data.test_labels[r])
+                    t.test_nn()
+                    sleep(3)
+                    # if t.test_nn() < 0.3:
+                    #     r = random.randint(0, len(mnist_input.data.test_data))
+                    #     print("Prediction", t.predict(mnist_input.data.test_data[r]), mnist_input.data.test_labels[r])
 
                 if thread_runner.all_props_dict['mode'] == "predict_random":
                     r = random.randint(0, len(mnist_input.data.train_data))
-                    p = t.predict(mnist_input.data.train_data[r].view(1, 1, 28, 28))
+                    target_label = mnist_input.data.train_labels[r]
+                    p = t.predict(mnist_input.data.train_data[r].view(1, 28, 28))
                     pred = p['predicted'][0]
                     min_index, min_value = max(enumerate(pred), key=lambda x: x[1])
-                    print(pred)
-                    print("Prediction",  min_index, min_value, mnist_input.data.train_labels[r], p['item'])
+                    # print(pred)
+                    if int(p['item']) == target_label:
+                        print("Match", target_label)
+                    else:
+                        print("Prediction dont match:",  min_index, min_value, "label", mnist_input.data.train_labels[r], p['item'])
                     sleep(5)
 
             except KeyboardInterrupt:

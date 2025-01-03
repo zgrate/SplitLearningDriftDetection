@@ -45,6 +45,7 @@ class ServerModel:
 
         self.epoch = 0
         if input_dict is not None:
+            print("Loading State DICT")
             self.model.load_state_dict(input_dict)
         else:
             self.model.reset_nn()
@@ -55,11 +56,10 @@ class ServerModel:
         self.error_counter = 0
         self.options = None
 
-    @classmethod
-    def load(cls, file):
-        t = torch.load(file)
-        # self.model.load_state_dict(t)
-        return ServerModel(t)
+    def load(self, file):
+        t = torch.load(file, weights_only=True)
+        self.model.load_state_dict(t)
+        # return ServerModel(input_dict=t)
 
     def save(self, target_file):
         os.makedirs(target_file, exist_ok=True)
