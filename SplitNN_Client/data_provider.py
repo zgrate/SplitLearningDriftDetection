@@ -34,7 +34,7 @@ def division_data(clients_number):
     return [get_test_training_data(i, clients_number, mnist) for i in range(clients_number)]
 
 
-def get_test_training_data(client_id, client_count, mnist=None):
+def get_test_training_data(client_id, client_count, mnist=None, drift_transformation=None):
     if mnist is None:
         mnist = MNIST("mnists/", download=True)
 
@@ -50,6 +50,9 @@ def get_test_training_data(client_id, client_count, mnist=None):
 
     part_data = mnist.train_data[start:end].float()/255
     part_targets = mnist.train_labels[start:end].long()
+
+    if drift_transformation is not None:
+        part_data, part_targets = drift_transformation(part_data, part_targets) 
 
     return part_data, part_targets, [], []
 
@@ -105,7 +108,7 @@ class DriftDatasetLoader(DataLoader):
     def __init__(self, dataset: Dataset, drifter: AbstractDrifter, *args, **kwargs):
         super().__init__(dataset, *args, **kwargs)
         self.drifter = drifter
-        self.active = False
+        self.drift_active = False
 
     def __iter__(self):
         self.iterator = super().__iter__()
@@ -114,4 +117,4 @@ class DriftDatasetLoader(DataLoader):
 
     def __next__(self):
         next_items = next(self.iterator)
-        return self.drifter.next_drifting(next_items) if self.active else next_items
+        return self.drifter.next_drifting(next_items) if self.drift_active else next_items

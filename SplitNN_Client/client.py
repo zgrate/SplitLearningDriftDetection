@@ -2,6 +2,7 @@ import json
 import os.path
 import random
 from datetime import datetime
+from functools import partial
 from os import path
 from time import sleep
 
@@ -10,7 +11,9 @@ from torch import nn, Tensor
 from torch.utils.data import Subset
 
 from SplitNN_Client.data_provider import AbstractDataInputStream, MNISTDataInputStream, get_test_training_data, \
-    DataInputDataset
+    DataInputDataset, DriftDatasetLoader
+from SplitNN_Client.drifted_data_creator import add_noise
+from SplitNN_Client.drifting_simulation import RandomDrifter, AbstractDrifter
 from SplitNN_Client.server_connection import ServerConnection
 
 
@@ -57,7 +60,15 @@ class TrainingSuite:
             self.logger_file.flush()
 
     def __init__(self, client_id, data_input_stream: AbstractDataInputStream, optimizer=torch.optim.SGD,
-                 learning_rate=0.001, folder: str = "folder", load_save_data_directory: str = None, load_only=False, reset_nn=True):
+                 learning_rate=0.001, folder: str = "folder", load_save_data_directory: str = None, load_only=False, reset_nn=True,
+                 drifter_options=None):
+        self.validation_data_loader = None
+        self.training_data_loader = None
+        self.validation_data = None
+        self.training_data = None
+        self.dataset = None
+        if drifter_options is None:
+            drifter_options = dict()
         self.model = ClientModel()
         self.epoch = 0
         self.folder = folder
@@ -69,17 +80,31 @@ class TrainingSuite:
         self.reset_nn = reset_nn
 
         if data_input_stream is not None:
-            self.dataset = DataInputDataset(data_input_stream)
-            self.training_data, self.validation_data = torch.utils.data.random_split(self.dataset, [0.9, 0.1])
-            self.training_data_loader = torch.utils.data.DataLoader(self.training_data,
-                                                                    batch_size=len(self.training_data.indices))
-            self.validation_data_loader = torch.utils.data.DataLoader(self.validation_data,
-                                                                      batch_size=len(self.validation_data.indices))
+            self.swap_datasets(data_input_stream, drifter_options)
+            # self.dataset = DataInputDataset(data_input_stream)
+            # self.training_data, self.validation_data = torch.utils.data.random_split(self.dataset, [0.9, 0.1])
+            # self.training_data_loader = DriftDatasetLoader(self.training_data, drifter=RandomDrifter(**drifter_options),
+            #                                                         batch_size=len(self.training_data.indices))
+            # self.validation_data_loader = DriftDatasetLoader(self.validation_data, drifter=RandomDrifter(**drifter_options),
+            #                                                           batch_size=len(self.validation_data.indices))
 
         self.optimizer = optimizer(self.model.parameters(), lr=learning_rate)
         self.error_counter = 0
         self.last_comm_time = 0
         self.last_whole_training_time = 0
+
+    def swap_datasets(self, data_input_stream, drifter_options=None):
+        if drifter_options is None:
+            drifter_options = {}
+
+        self.dataset = DataInputDataset(data_input_stream)
+        self.training_data, self.validation_data = torch.utils.data.random_split(self.dataset, [0.9, 0.1])
+        self.training_data_loader = DriftDatasetLoader(self.training_data, drifter=AbstractDrifter(**drifter_options),
+                                                       batch_size=len(self.training_data.indices))
+        self.validation_data_loader = DriftDatasetLoader(self.validation_data, drifter=AbstractDrifter(**drifter_options),
+                                                         batch_size=len(self.validation_data.indices))
+        # self.validation_data = validation_data
+        # self.validation_data_loader = DriftDatasetLoader(self.validation_data, drifter=AbstractDrifter(), batch_size=len(self.validation_data.indices))
 
     def reset_local_nn(self):
         self.model.reset_nn()
@@ -175,11 +200,21 @@ class TrainingSuite:
 
 def run_client(client_id, thread_runner):
     mnist_input = MNISTDataInputStream(*get_test_training_data(client_id, thread_runner.clients))
-    # d = mnist_input.get_data_part()
-    print(mnist_input.data.train_data.shape)
+    drifted_data = MNISTDataInputStream(*get_test_training_data(client_id, thread_runner.clients, drift_transformation=partial(add_noise, noise_level=0.5)))
+    # exit(0)
+    # print(mnist_input.data.train_data.shape)
     with TrainingSuite(client_id, mnist_input, learning_rate=thread_runner.client_learning_rate,
-                       folder=thread_runner.folder, load_save_data_directory=thread_runner.all_props_dict['client_load_directory'], load_only=thread_runner.all_props_dict['load_only'], reset_nn=thread_runner.all_props_dict['reset_nn']) as t:
+                       folder=thread_runner.folder, load_save_data_directory=thread_runner.all_props_dict['client_load_directory'], load_only=thread_runner.all_props_dict['load_only'], reset_nn=thread_runner.all_props_dict['reset_nn'], drifter_options=thread_runner.all_props_dict['drifter_options']) as t:
+        t.log("Starting client")
         t.test_nn()
+        t.log("Swapping Datasets")
+        t.swap_datasets(drifted_data)
+        t.log("After swapped")
+        t.test_nn()
+        exit(0)
+
+        if thread_runner.all_props_dict['start_drifting']:
+            t.validation_data_loader.drift_active = True
         while not thread_runner.get_global_stop():
             try:
                 if thread_runner.all_props_dict['mode'] == "train":
@@ -193,7 +228,6 @@ def run_client(client_id, thread_runner):
                     #     r = random.randint(0, len(mnist_input.data.test_data))
                     #     print("Prediction", t.predict(mnist_input.data.test_data[r]), mnist_input.data.test_labels[r])
 
-                if thread_runner.all_props_dict['mode'] == "predict_random":
                     r = random.randint(0, len(mnist_input.data.train_data))
                     target_label = mnist_input.data.train_labels[r]
                     p = t.predict(mnist_input.data.train_data[r].view(1, 28, 28))

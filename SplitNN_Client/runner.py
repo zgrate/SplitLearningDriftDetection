@@ -1,4 +1,5 @@
 import os
+import random
 import signal
 import threading
 from datetime import datetime
@@ -40,7 +41,7 @@ class SplitLearningRunner:
 
     def start_runner(self):
         print("Starting runner in 5 seconds")
-        sleep(5)
+        # sleep(5)
         self.server_connection.prepare_runner(self.all_props_dict)
 
         os.mkdir(self.folder)
@@ -114,12 +115,17 @@ if __name__ == "__main__":
             "server_optimiser_options": {
                 "lr": 0.001,
             },
+            'drifter_options':{
+                'drifting_probability': 0.1,
+                'seed': 11000*random.randint(0, 100)
+            },
             "client_learning_rate": 0.001,
             "server_load_save_data": None,
             "client_load_directory": None,
             "load_only": False,
             "reset_logs": True,
             "reset_nn": True,
+            "start_drifting": True,
             "mode": "train" #'train', 'predict_random'
         }
         clients = 5

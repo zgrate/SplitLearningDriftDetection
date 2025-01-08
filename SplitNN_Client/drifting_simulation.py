@@ -3,7 +3,12 @@ import random
 from torch import Tensor
 
 
+import torch
+
 class AbstractDrifter:
+
+    def __init__(self, *args, **kwargs):
+        pass
 
     def activate_drifting(self, iterator):
         return iterator
@@ -23,9 +28,29 @@ class RandomDrifter(AbstractDrifter):
     def next_drifting(self,  next_elements):
         X: Tensor
         y: Tensor
-        for X, y in next_elements:
-            print(X)
-            X.apply_(lambda d: d+1)
-            print(X)
-            exit(0)
+        (X, y) = next_elements
 
+        def drift(value):
+            if self.random.random() < self.drifting_probability:
+                return value*self.random.random()
+            else:
+                return value
+
+
+        X.apply_(drift)
+#
+# if __name__ == '__main__':
+#     from data_provider import MNISTDataInputStream, get_test_training_data, DataInputDataset, \
+#         DriftDatasetLoader
+#
+#     data_input_stream = MNISTDataInputStream(*get_test_training_data(0, 4))
+#     dataset = DataInputDataset(data_input_stream)
+#     training_data, validation_data = torch.utils.data.random_split(dataset, [0.9, 0.1])
+#     # training_data_loader = torch.utils.data.DataLoader(training_data,
+#     #                                     batch_size=len(training_data.indices))
+#     validation_data_loader = DriftDatasetLoader(validation_data, RandomDrifter(0.1, 1),
+#                                           batch_size=len(validation_data.indices))
+#     validation_data_loader.active = True
+#     for X, Y in validation_data_loader:
+#         print(X)
+#         print(Y)
