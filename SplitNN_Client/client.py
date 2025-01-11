@@ -11,8 +11,8 @@ from torch import nn, Tensor
 from torch.utils.data import Subset
 
 from SplitNN_Client.data_provider import AbstractDataInputStream, MNISTDataInputStream, get_test_training_data, \
-    DataInputDataset, DriftDatasetLoader
-from SplitNN_Client.drifted_data_creator import add_noise
+    DataInputDataset, DriftDatasetLoader, get_separated_by_labels
+from SplitNN_Client.drifted_data_creator import add_noise, temporal_drift
 from SplitNN_Client.drifting_simulation import RandomDrifter, AbstractDrifter
 from SplitNN_Client.server_connection import ServerConnection
 
@@ -59,7 +59,7 @@ class TrainingSuite:
             self.logger_file.write(s)
             self.logger_file.flush()
 
-    def __init__(self, client_id, data_input_stream: AbstractDataInputStream, optimizer=torch.optim.SGD,
+    def __init__(self, client_id, data_input_stream: DataInputDataset, optimizer=torch.optim.SGD,
                  learning_rate=0.001, folder: str = "folder", load_save_data_directory: str = None, load_only=False, reset_nn=True,
                  drifter_options=None):
         self.validation_data_loader = None
@@ -93,11 +93,11 @@ class TrainingSuite:
         self.last_comm_time = 0
         self.last_whole_training_time = 0
 
-    def swap_datasets(self, data_input_stream, drifter_options=None):
-        if drifter_options is None:
-            drifter_options = {}
+    def swap_datasets(self, dataset, drifter_function):
+        if drifter_function is None:
+            drifter_options = lambda x,y,_ : (x,y )
 
-        self.dataset = DataInputDataset(data_input_stream)
+        self.dataset = dataset
         self.training_data, self.validation_data = torch.utils.data.random_split(self.dataset, [0.9, 0.1])
         self.training_data_loader = DriftDatasetLoader(self.training_data, drifter=AbstractDrifter(**drifter_options),
                                                        batch_size=len(self.training_data.indices))
@@ -141,7 +141,7 @@ class TrainingSuite:
 
         self.epoch += 1
         loss = sum(losses) / len(losses)
-        self.log("GOT TEST LOSS", loss)
+        self.log("GOT TRAIN LOSS", loss)
         #TODO: I should report avrg loss, not loss of each iteration here!
         #Only the case when batching
 
@@ -198,20 +198,36 @@ class TrainingSuite:
             torch.save(self.model.state_dict(), path.join(self.load_save_data_directory, f"client_{self.client_id}.pt"))
 
 
+def get_random_prediction_mnist(input_data: DataInputDataset):
+    data, label = input_data.random_data_label()
+    return data.view(1, 28, 28), label
+
 def run_client(client_id, thread_runner):
-    mnist_input = MNISTDataInputStream(*get_test_training_data(client_id, thread_runner.clients))
-    drifted_data = MNISTDataInputStream(*get_test_training_data(client_id, thread_runner.clients, drift_transformation=partial(add_noise, noise_level=0.5)))
-    # exit(0)
+    if thread_runner.all_props_dict['labels_filter'] is not None:
+        mnist_input = DataInputDataset(MNISTDataInputStream(*get_separated_by_labels(thread_runner.all_props_dict['labels_filter'][client_id])))
+    else:
+        mnist_input = DataInputDataset(MNISTDataInputStream(*get_test_training_data(client_id, thread_runner.clients)))
+
+    if thread_runner.all_props_dict['drift_type'] == "add_noise":
+        drifted_data = DataInputDataset(MNISTDataInputStream(*get_test_training_data(client_id, thread_runner.clients)), drift_transformation=partial(add_noise, **thread_runner.all_props_dict['drifter_options']))
+
+    elif thread_runner.all_props_dict['drift_type'] == "swap_domain":
+        domain_id = client_id + 1
+        if len(thread_runner.all_props_dict['labels_filter']) >= domain_id:
+            domain_id = 0
+        drifted_data = DataInputDataset(MNISTDataInputStream(*get_separated_by_labels(thread_runner.all_props_dict['labels_filter'][domain_id])))
+    elif thread_runner.all_props_dict['drift_type'] == "temporal_drift":
+        drifted_data = DataInputDataset(MNISTDataInputStream(*get_test_training_data(client_id, thread_runner.clients)), drift_transformation=partial(temporal_drift, **thread_runner.all_props_dict['drifter_options']))
+
+    # exit(0)mnist_input
     # print(mnist_input.data.train_data.shape)
     with TrainingSuite(client_id, mnist_input, learning_rate=thread_runner.client_learning_rate,
                        folder=thread_runner.folder, load_save_data_directory=thread_runner.all_props_dict['client_load_directory'], load_only=thread_runner.all_props_dict['load_only'], reset_nn=thread_runner.all_props_dict['reset_nn'], drifter_options=thread_runner.all_props_dict['drifter_options']) as t:
-        t.log("Starting client")
-        t.test_nn()
-        t.log("Swapping Datasets")
-        t.swap_datasets(drifted_data)
-        t.log("After swapped")
-        t.test_nn()
-        exit(0)
+        list_of_last_results = []
+        mode = "train"
+        last_test_check = 0
+        prediction_epoch = 0
+        current_dataset = mnist_input
 
         if thread_runner.all_props_dict['start_drifting']:
             t.validation_data_loader.drift_active = True
@@ -228,17 +244,71 @@ def run_client(client_id, thread_runner):
                     #     r = random.randint(0, len(mnist_input.data.test_data))
                     #     print("Prediction", t.predict(mnist_input.data.test_data[r]), mnist_input.data.test_labels[r])
 
-                    r = random.randint(0, len(mnist_input.data.train_data))
-                    target_label = mnist_input.data.train_labels[r]
-                    p = t.predict(mnist_input.data.train_data[r].view(1, 28, 28))
+                    # r = random.randint(0, len(mnist_input.data.train_data))
+                    image, target_label = get_random_prediction_mnist(mnist_input)
+                    p = t.predict(image)
                     pred = p['predicted'][0]
                     min_index, min_value = max(enumerate(pred), key=lambda x: x[1])
                     # print(pred)
                     if int(p['item']) == target_label:
                         print("Match", target_label)
                     else:
-                        print("Prediction dont match:",  min_index, min_value, "label", mnist_input.data.train_labels[r], p['item'])
+                        print("Prediction dont match:",  min_index, min_value, "label", target_label, p['item'])
                     sleep(5)
+
+                if thread_runner.all_props_dict['mode'] == "normal_runner":
+                    if prediction_epoch == thread_runner.all_props_dict['predict_epochs_swap']:
+                        if len(thread_runner.all_props_dict['drifting_clients']) == 0 or client_id in thread_runner.all_props_dict['drifting_clients']:
+                            t.log("Start the DRIFT!")
+                            t.swap_datasets(drifted_data)
+                            current_dataset = drifted_data
+                            prediction_epoch += 1
+                            sleep(5)
+
+                    if mode == "train":
+                        t.log("Training round")
+                        loss = t.train_round(False)
+                        if loss <= thread_runner.all_props_dict['target_loss']:
+                            t.log("We are trained! Going back to predicting...")
+                            mode = "predict"
+
+                    elif mode == "predict":
+                        image, target_label = get_random_prediction_mnist(current_dataset)
+                        p = t.predict(image)
+                        if thread_runner.all_props_dict['check_mode'] == "prediction":
+                            list_of_last_results.insert(0, (1 if int(p['item']) == target_label else 0))
+
+                            failures, all_tests = thread_runner.all_props_dict['prediction_errors_count']
+                            list_of_last_results = list_of_last_results[:all_tests]
+                            if client_id == 0:
+                                print(list_of_last_results, all_tests-sum(list_of_last_results), failures)
+                            if len(list_of_last_results) == all_tests and all_tests - sum(list_of_last_results) >= failures:
+                                t.log("We have a failures! Double check with tests!")
+                                loss = t.test_nn()
+                                if loss > thread_runner.all_props_dict['target_loss']:
+                                    t.log("Target loss not met ", loss, ". Training!")
+                                    mode = "train"
+                                else:
+                                    t.log("is OK")
+
+                                list_of_last_results = []
+
+                        t.log("Prediction ", p['item'], "should be ", target_label)
+                        prediction_epoch += 1
+                        sleep(1)
+                        if prediction_epoch % 10 == 0:
+                            t.log("Sanity test of NN", t.test_nn())
+
+                        if thread_runner.all_props_dict['check_mode'] == "testing":
+                            last_test_check += 1
+                            if  last_test_check >= thread_runner.all_props_dict['check_testing_repeating']:
+                                t.log("Testing the predicted NN")
+                                last_test_check = 0
+                                loss = t.test_nn()
+                                if loss > thread_runner.all_props_dict['target_loss']:
+                                    t.log("Target loss not met ", loss, ". Training!")
+                                    mode = "train"
+
 
             except KeyboardInterrupt:
                 break

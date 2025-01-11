@@ -5,6 +5,8 @@ import threading
 from datetime import datetime
 from time import sleep
 
+from sympy import false
+
 from SplitNN_Client.client import run_client, ClientModel, TrainingSuite
 from SplitNN_Client.server_connection import ServerConnection
 
@@ -116,8 +118,6 @@ if __name__ == "__main__":
                 "lr": 0.001,
             },
             'drifter_options':{
-                'drifting_probability': 0.1,
-                'seed': 11000*random.randint(0, 100)
             },
             "client_learning_rate": 0.001,
             "server_load_save_data": None,
@@ -126,11 +126,19 @@ if __name__ == "__main__":
             "reset_logs": True,
             "reset_nn": True,
             "start_drifting": True,
-            "mode": "train" #'train', 'predict_random'
+            "mode": "train", #'train', 'predict_random',
+            "check_mode": "prediction",
+            "prediction_errors_count": (2 , 10),
+            "predict_epochs_swap": 30,
+            "check_testing_repeating": 10,
+            "drifting_clients": [],
+            "labels_filter": None,
+            "drift_type": "add_noise",
+            "disable_server_side_drift_detection": False
         }
         clients = 5
-        server_load_save_data = "server_test_1"
-        client_load_directory = "client_test_1"
+        server_load_save_data = "server_test_2"
+        client_load_directory = "client_test_2"
 
         params = {
             "clients": clients,
@@ -141,9 +149,93 @@ if __name__ == "__main__":
 
         settings = [
             # {"clients": 2, **default},
+
+            #Default
             # {**default, **params, 'target_loss': 1, 'reset_logs': True, 'reset_nn': True, "mode": "train"},
             # {**default, **params, 'target_loss': 0.1, 'reset_logs': False, "load_only": False, 'reset_nn': False, "mode": "train"},
-            {**default, **params, 'reset_logs': False, 'reset_nn': False, "load_only": True, "mode": "predict_random"},
+            # {**default, **params, 'reset_logs': False, 'reset_nn': False, "load_only": True, "mode": "predict_random"},
+
+            # Add Noise Drift and only 2 clients drift, with label separation
+            # {
+            #     **default,
+            #     **params,
+            #     "drift_type": "add_noise",
+            #     "target_loss": 0.2,
+            #     "reset_logs": False,
+            #     "reset_nn": False,
+            #     "load_only": True,
+            #     "mode": "normal_runner",
+            #     'server_load_save_data': 'server_test_1',
+            #     'client_load_directory': 'client_test_1',
+            #       'drifter_options':
+            #         {
+            #            'noise_level': 0.2
+            #         },
+            #     "drifting_clients": [0, 1],
+            #     "labels_filter": {
+            #         0: [0, 1, 2],
+            #         1: [3, 4],
+            #         2: [5, 6],
+            #         3: [7, 8],
+            #         4: [9, 0],
+            #     }
+            # }
+
+            # Add Noise Drift
+            # {
+            #     **default,
+            #     **params,
+            #     "drift_type": "add_noise",
+            #     "target_loss": 0.2,
+            #     "reset_logs": False,
+            #     "reset_nn": False,
+            #     "load_only": True,
+            #     "mode": "normal_runner",
+            #     'server_load_save_data': 'server_test_1',
+            #     'client_load_directory': 'client_test_1',
+            #       'drifter_options':
+            #         {
+            #            'noise_level': 0.2
+            #         }
+            # }
+
+            #Temporal Drift
+            {
+                **default,
+                **params,
+                'desc': "Normal Running with temporal drift from 20th iteration",
+                "drift_type": "temporal_drift",
+                "target_loss": 0.2,
+                "reset_logs": False,
+                "reset_nn": False,
+                "load_only": True,
+                "mode": "normal_runner",
+                'server_load_save_data': 'server_test_1',
+                'client_load_directory': 'client_test_1',
+                'drifter_options': {
+                    'max_time_steps': 200,
+                    'start_epoch': 20
+                },
+            }
+
+
+            # Domain Shift
+            # {**default, **params, 'target_loss': 0.2, 'reset_logs': True, 'reset_nn': True, "load_only": False, "mode": "train"},
+            # {**default, **params, 'target_loss': 0.2, 'reset_logs': True, 'reset_nn': True, "load_only": False, "mode": "normal_runner"},
+            # {
+            #     **default,
+            #     **params,
+            #     'desc': "Normal Running with domain Shift",
+            #     'target_loss': 0.2,
+            #     'reset_logs': False,
+            #     'reset_nn': False,
+            #     "load_only": True,
+            #     "mode": "normal_runner",
+            #     'drift_type': "swap_domain",
+            #     'server_load_save_data': 'server_test_2',
+            #     'client_load_directory': 'client_test_2'
+            # },
+
             # {"clients": 4, **default},
             # {"clients": 5, **default},
             # {"clients": 6, **default},

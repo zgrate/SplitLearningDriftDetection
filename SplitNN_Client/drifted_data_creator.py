@@ -27,7 +27,7 @@ for i in range(1000):
 #Feature Distribution Drift
 #Change the pixel distributions in the images.
 import numpy as np
-def add_noise(images, labels, noise_level=0.1):
+def add_noise(images, labels, epoch, noise_level=0.1):
     noise = np.random.normal(0, noise_level, images.shape)
     return np.clip(images + noise, 0, 1).float(), labels  # Keep pixel values in [0, 1]
 
@@ -85,10 +85,12 @@ def create_imbalanced_data(images, labels, rare_classes=[1, 7], common_classes=[
 
 #Temporal Drift
 #Gradually alter the distribution of features or labels over time.
-def temporal_drift(images, time_step, max_time_steps):
-    drift_factor = time_step / max_time_steps
+def temporal_drift(images, labels, epoch, max_time_steps=999, start_epoch=10):
+    if epoch <= start_epoch:
+        return images, labels
+    drift_factor = epoch / max_time_steps
     noise = np.random.normal(0, drift_factor * 0.1, images.shape)
-    return np.clip(images + noise, 0, 1)
+    return np.clip(images + noise, 0, 1).float(), labels
 
 # for time_step in range(100):  # Example over 100 time steps
 #     drifted_images = temporal_drift(original_images, time_step, 100)

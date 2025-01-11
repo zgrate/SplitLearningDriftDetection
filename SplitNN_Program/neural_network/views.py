@@ -9,6 +9,7 @@ from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
 from data_logger.models import DataTransferLog, TrainingLog, DriftingLogger
+from drift_detection.drift_detectors import SimpleAverageDriftDetection, check_average_drift_of_client
 from neural_network.models import global_server_model
 
 import sys
@@ -44,6 +45,11 @@ sample_request_train = {
     "local_epoch": "int",
     "client_id": "str"
 }
+
+drifting_suits = [
+    SimpleAverageDriftDetection()
+]
+
 
 
 @api_view(["POST"])
@@ -96,7 +102,9 @@ def test(request):
 
     print("Trying to drift detect", global_server_model.drift_detection_suite.drift_detection_run(), global_server_model.drift_detection_suite.drift_detection_class.get_regression())
 
-    return Response({"loss": loss})
+    client_drifting = check_average_drift_of_client(client_id)
+
+    return Response({"loss": loss, "local_deviation": client_drifting})
 
 
 @api_view(["POST"])
@@ -107,6 +115,7 @@ def predict(request):
     with lock:
         predicted = global_server_model.predict(request.data['output'])
         probabilities = torch.exp(predicted)
+        probabilities[probabilities == float("Inf")] = 0
         print(probabilities)
         data = {"predicted": probabilities, "item": torch.argmax(probabilities, dim=1).item()}
 
