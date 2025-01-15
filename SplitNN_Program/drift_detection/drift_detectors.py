@@ -158,29 +158,33 @@ class DriftDetectionSuite:
 
 
 def check_average_drift_of_client(client_id, zscore_deviation=5, error_threshold=0.1, filter_last_tests=50):
-    clients = TrainingLog.objects.order_by('-created_at')[:filter_last_tests]
-    if clients.count() < filter_last_tests:
+    try:
+        clients = TrainingLog.objects.order_by('-created_at')[:filter_last_tests]
+        if clients.count() < filter_last_tests:
+            return False
+
+        average_drift_per_client = list(TrainingLog.objects.filter(id__in=clients, mode='test').values("client_id").annotate(average=Avg("loss"), count=Count("id")))
+
+        print(average_drift_per_client)
+
+        index_of = average_drift_per_client.index(next(x for x in average_drift_per_client if x['client_id'] == str(client_id)))
+        avrg_of_client = average_drift_per_client.pop(index_of)
+
+        weighted_average = sum(x['average']*x['count'] for x in average_drift_per_client)/sum(x['count'] for x in average_drift_per_client)
+        print(weighted_average - avrg_of_client['average'] )
+        if  avrg_of_client['average'] - weighted_average < error_threshold:
+            return False
+
+        sd = math.sqrt(sum(x['count'] * (x['average'] - weighted_average) ** 2 for x in average_drift_per_client)/sum(x['count'] for x in average_drift_per_client))
+        Z = (avrg_of_client['average'] - weighted_average)/sd
+        print(Z, avrg_of_client['average']-weighted_average)
+
+        if Z >= zscore_deviation:
+            return True
+    except Exception as ex:
+        print(ex)
+        print("WE have an error. We will probably wait it thorugh....")
         return False
-
-    average_drift_per_client = list(TrainingLog.objects.filter(id__in=clients, mode='test').values("client_id").annotate(average=Avg("loss"), count=Count("id")))
-
-    print(average_drift_per_client)
-
-    index_of = average_drift_per_client.index(next(x for x in average_drift_per_client if x['client_id'] == str(client_id)))
-    avrg_of_client = average_drift_per_client.pop(index_of)
-
-    weighted_average = sum(x['average']*x['count'] for x in average_drift_per_client)/sum(x['count'] for x in average_drift_per_client)
-    print(weighted_average - avrg_of_client['average'] )
-    if  avrg_of_client['average'] - weighted_average < error_threshold:
-        return False
-
-    sd = math.sqrt(sum(x['count'] * (x['average'] - weighted_average) ** 2 for x in average_drift_per_client)/sum(x['count'] for x in average_drift_per_client))
-    Z = (avrg_of_client['average'] - weighted_average)/sd
-    print(Z, avrg_of_client['average']-weighted_average)
-
-    if Z >= zscore_deviation:
-        return True
-
 
 # SimpleAverageDriftDetection().get_regression()
 # check_average_drift_of_client(1)

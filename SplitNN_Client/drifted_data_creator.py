@@ -28,6 +28,7 @@ for i in range(1000):
 #Change the pixel distributions in the images.
 import numpy as np
 def add_noise(images, labels, epoch, noise_level=0.1):
+    print("Drifting....")
     noise = np.random.normal(0, noise_level, images.shape)
     return np.clip(images + noise, 0, 1).float(), labels  # Keep pixel values in [0, 1]
 

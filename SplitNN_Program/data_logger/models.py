@@ -51,3 +51,14 @@ class DriftingLogger(models.Model):
     is_drifting = models.BooleanField(default=False)
 
     correction_policy = models.CharField(max_length=255, null=True, default=None)
+
+class PredictionLog(models.Model):
+    created_at = models.DateTimeField(auto_now_add=True)
+    client_id = models.CharField(max_length=255, null=True, default=None)
+
+    server_epoch = models.IntegerField(default=0)
+    client_epoch = models.IntegerField(default=0)
+
+    prediction_result = models.CharField(max_length=255, null=True, default=None)
+    expected_result = models.CharField(max_length=255, null=True, default=None)
+

@@ -54,8 +54,8 @@ class ServerConnection:
 
         return None
 
-    def predict_request(self, output):
-        response = self.post(PREDICT_API, {"output": output.tolist(), "client_id": str(self.client_token)})
+    def predict_request(self, output, local_epoch=None, target_label=None):
+        response = self.post(PREDICT_API, {"output": output.tolist(), "client_id": str(self.client_token), "target_label": target_label, "local_epoch": local_epoch})
         if response.status_code == 200:
             return response.json()
 
@@ -78,7 +78,7 @@ class ServerConnection:
     def save_report(self, details):
         response = self.post(SAVE_REPORT_API, {"details": {"client_id": self.client_token, **details}})
         if response.status_code == 200:
-            return True
+            return response.json()
 
         return False
 

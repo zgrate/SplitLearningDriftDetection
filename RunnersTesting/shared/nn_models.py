@@ -9,6 +9,106 @@ from torch.utils.data import DataLoader
 from RunnersTesting.shared.data_provider import get_test_training_data, MNISTDataInputStream, DataInputDataset
 
 
+class ClientServerModel0:
+
+    client = nn.Sequential(
+        nn.Flatten(),
+        nn.Linear(784, 128),
+        nn.ReLU(),
+    )
+
+    server = nn.Sequential(
+            nn.Linear(128, 100),
+            nn.ReLU(),
+            nn.Linear(100, out_features=128),
+            nn.ReLU(),
+            nn.Linear(128, out_features=100),
+            nn.ReLU(),
+            nn.Linear(100, out_features=10),
+            nn.LogSoftmax(dim=1)
+        )
+
+
+class ClientServerModel1:
+
+    client = nn.Sequential(
+        # ClientLayer(),
+        nn.Flatten(),
+        nn.Linear(784, 128),
+        nn.ReLU(),
+        nn.Linear(128, 100),
+        nn.ReLU(),
+    )
+
+    server = nn.Sequential(
+            nn.Linear(100, out_features=128),
+            nn.ReLU(),
+            nn.Linear(128, out_features=100),
+            nn.ReLU(),
+            nn.Linear(100, out_features=10),
+            nn.LogSoftmax(dim=1)
+        )
+
+
+
+class ClientServerModel2:
+
+    client = nn.Sequential(
+        # ClientLayer(),
+        nn.Flatten(),
+        nn.Linear(784, 128),
+        nn.ReLU(),
+        nn.Linear(128, 100),
+        nn.ReLU(),
+        nn.Linear(100, out_features=128),
+        nn.ReLU(),
+    )
+
+    server = nn.Sequential(
+            nn.Linear(128, out_features=100),
+            nn.ReLU(),
+            nn.Linear(100, out_features=10),
+            nn.LogSoftmax(dim=1)
+        )
+
+class ClientServerModel3:
+    client = nn.Sequential(
+        # ClientLayer(),
+        nn.Flatten(),
+        nn.Linear(784, 128),
+        nn.ReLU(),
+        nn.Linear(128, 100),
+        nn.ReLU(),
+        nn.Linear(100, out_features=128),
+        nn.ReLU(),
+        nn.Linear(128, out_features=100),
+        nn.ReLU(),
+    )
+
+    server = nn.Sequential(
+        nn.Linear(100, out_features=10),
+        nn.LogSoftmax(dim=1)
+    )
+
+
+
+class CentralModel4:
+    central = nn.Sequential(
+        # ClientLayer(),
+        nn.Flatten(),
+        nn.Linear(784, 128),
+        nn.ReLU(),
+        nn.Linear(128, 100),
+        nn.ReLU(),
+        nn.Linear(100, out_features=128),
+        nn.ReLU(),
+        nn.Linear(128, out_features=100),
+        nn.ReLU(),
+        nn.Linear(100, out_features=10),
+        nn.LogSoftmax(dim=1)
+    )
+
+
 class ServerModelWrapper(nn.Module):
     def __init__(self):
         super(ServerModelWrapper, self).__init__()

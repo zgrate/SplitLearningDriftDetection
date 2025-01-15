@@ -2,13 +2,14 @@ import datetime
 import json
 import os
 import threading
+import shutil
 
 import torch
 from django.db.models import StdDev, Avg, Min, Max, Sum
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
-from data_logger.models import DataTransferLog, TrainingLog, DriftingLogger
+from data_logger.models import DataTransferLog, TrainingLog, DriftingLogger, PredictionLog
 from drift_detection.drift_detectors import SimpleAverageDriftDetection, check_average_drift_of_client
 from neural_network.models import global_server_model
 
@@ -110,6 +111,8 @@ def test(request):
 @api_view(["POST"])
 def predict(request):
     client_id = request.data["client_id"]
+    local_epoch = request.data["local_epoch"]
+
 
     report_usage("predict", sys.getsizeof(request.data), client_id, direction_to_server=True)
     with lock:
@@ -118,6 +121,9 @@ def predict(request):
         probabilities[probabilities == float("Inf")] = 0
         print(probabilities)
         data = {"predicted": probabilities, "item": torch.argmax(probabilities, dim=1).item()}
+
+    # if "target_label" in request.data and request.data["target_label"] is not None:
+    PredictionLog(client_id=client_id, client_epoch=request.data['local_epoch'], server_epoch=global_server_model.epoch, prediction_result=str(data['item']), expected_result=str(request.data['target_label'])).save()
 
     report_usage("predict", sys.getsizeof(data), client_id, direction_to_server=False)
 
@@ -183,6 +189,15 @@ def save_reports(request):
     def j(file):
         return os.path.join(folder, file)
 
+    db_file = "db.sqlite3"
+    shutil.copy(os.path.abspath(db_file), j("db.sqlite3"))
+    classes = [TrainingLog, DataTransferLog, PredictionLog, DriftingLogger]
+
+    for cls in classes:
+        df = pd.DataFrame(cls.objects.all().values())
+        df.to_csv(j(cls.__name__ + ".csv"))
+
+
     with open(os.path.join(folder, "details.json"), "w") as f:
         json.dump(details, f, indent=4)
 
@@ -191,12 +206,12 @@ def save_reports(request):
 
     # Save Training log to CSV
     df1 = pd.DataFrame(TrainingLog.objects.all().values())
-    df1.to_csv(j("training_log.csv"), index=False)
+    # df1.to_csv(j("training_log.csv"), index=False)
 
     df2 = pd.DataFrame(DataTransferLog.objects.all().values())
-    df2.to_csv(j("data_transfer_log.csv"), index=False)
+    # df2.to_csv(j("data_transfer_log.csv"), index=False)
 
-    df1.info()
+    # df1.info()
 
     # Client Epoch to Server Epoch
     avg_epoch = df1[["epoch", "server_epoch"]].groupby(by="server_epoch").mean()
@@ -219,7 +234,7 @@ def save_reports(request):
     plt.xlabel("Server Epoch")
     plt.savefig(j("loss_epoch.png"))
 
-    return Response({})
+    return Response({"server_data_folder": os.path.abspath(folder)})
 
 
 @api_view(['POST'])
@@ -249,6 +264,11 @@ def prepare_running(request):
         TrainingLog.objects.all().delete()
         DataTransferLog.objects.all().delete()
         DriftingLogger.objects.all().delete()
+        PredictionLog.objects.all().delete()
+
+    if global_server_model.options['selected_model'] != global_server_model.model.model_number:
+        print("Swapping models")
+        global_server_model.reset_local_nn(options['selected_model'])
 
     clients_amount = options['clients']
     current_client = 0
@@ -259,7 +279,7 @@ def prepare_running(request):
         global_server_model.model.eval()
     else:
         print("Resetting server NN")
-        global_server_model.reset_local_nn()
+        global_server_model.reset_local_nn(options["selected_model"])
 
 
     global_server_model.reinit_optimiser(**options['server_optimiser_options'])

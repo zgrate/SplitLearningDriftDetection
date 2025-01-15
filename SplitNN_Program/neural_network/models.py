@@ -7,22 +7,24 @@ from torch import nn, Tensor, optim
 
 from data_logger.models import TrainingLog
 from drift_detection.drift_detectors import DriftDetectionSuite, SimpleAverageDriftDetection
-
+from neural_network.nn_models import ClientServerModel0, ClientServerModel1, ClientServerModel2, ClientServerModel3
 
 # Create your models here.
 
+server_models = {
+    0: ClientServerModel0,
+    1: ClientServerModel1,
+    2: ClientServerModel2,
+    3: ClientServerModel3,
+
+}
+
 
 class ServerModelWrapper(nn.Module):
-    def __init__(self):
+    def __init__(self, model_number=1):
         super(ServerModelWrapper, self).__init__()
-        self.model = nn.Sequential(
-            nn.Linear(100, out_features=128),
-            nn.ReLU(),
-            nn.Linear(128, out_features=100),
-            nn.ReLU(),
-            nn.Linear(100, out_features=10),
-            # nn.LogSoftmax(dim=1)
-        )
+        self.model_number = model_number
+        self.model = server_models[model_number].server()
 
     def reset_nn(self):
         def init_normal(module):
@@ -65,10 +67,12 @@ class ServerModel:
         os.makedirs(target_file, exist_ok=True)
         torch.save(global_server_model.model.state_dict(), os.path.join(target_file, "server.pt"))
 
-    def reset_local_nn(self):
+    def reset_local_nn(self, model_number=1):
         TrainingLog(mode="reset", server_epoch=self.epoch).save()
         self.epoch = 0
+        self.model = ServerModelWrapper(model_number)
         self.model.reset_nn()
+
 
     def optimizer_pass(self):
         self.optimizer.step()
