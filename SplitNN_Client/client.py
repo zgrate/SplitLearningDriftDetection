@@ -31,7 +31,6 @@ class ClientModel(nn.Module):
     def __init__(self, file=None, model_type:int=1):
         super().__init__()
         self.model = models[model_type].client()
-
         if file is None:
             self.reset_nn()
 
@@ -70,7 +69,7 @@ class TrainingSuite:
         self.validation_data = None
         self.training_data = None
         self.dataset = None
-        self.model = ClientModel(selected_model)
+        self.model = ClientModel(model_type=selected_model)
         self.epoch = 0
         self.folder = folder
         self.client_id = client_id
@@ -92,15 +91,15 @@ class TrainingSuite:
         self.last_comm_time = 0
         self.last_whole_training_time = 0
 
-    def set_dataset(self, dataset, drifter_function=None):
+    def set_dataset(self, dataset, drifter_function=None, start_epoch=0):
         if drifter_function is None:
             drifter_function = lambda x,y,_ : (x,y )
 
         self.dataset = dataset
         self.training_data, self.validation_data = torch.utils.data.random_split(self.dataset, [0.9, 0.1])
-        self.training_data_loader = DriftDatasetLoader(self.training_data, drifter=drifter_function,
+        self.training_data_loader = DriftDatasetLoader(self.training_data, drifter=drifter_function, start_epoch=start_epoch,
                                                        batch_size=len(self.training_data.indices))
-        self.validation_data_loader = DriftDatasetLoader(self.validation_data, drifter=drifter_function,
+        self.validation_data_loader = DriftDatasetLoader(self.validation_data, drifter=drifter_function, start_epoch=start_epoch,
                                                          batch_size=len(self.validation_data.indices))
         # self.validation_data = validation_data
         # self.validation_data_loader = DriftDatasetLoader(self.validation_data, drifter=AbstractDrifter(), batch_size=len(self.validation_data.indices))
@@ -135,6 +134,7 @@ class TrainingSuite:
             comms_start_time = datetime.now()
             response = self.server.train_request(output, y, self.epoch, self.last_comm_time,
                                                  self.last_whole_training_time)
+
             self.last_comm_time = (datetime.now() - comms_start_time).total_seconds()
             losses.append(response['loss'])
             server_gradients = torch.tensor(response['gradients'])
@@ -151,7 +151,7 @@ class TrainingSuite:
         self.last_whole_training_time = (datetime.now() - client_start_time).total_seconds()
         return loss
 
-    def test_nn(self):
+    def test_nn(self, prediction_epoch=None):
         print("TESTING NN")
         self.model.eval()
 
@@ -218,7 +218,7 @@ def run_client(client_id, thread_runner):
     if thread_runner.runner_settings.labels_filter is not None:
         mnist_input = DataInputDataset(MNISTDataInputStream(*get_separated_by_labels(thread_runner.runner_settings.labels_filter[client_id])))
     else:
-        mnist_input = DataInputDataset(MNISTDataInputStream(*get_test_training_data(client_id, thread_runner.clients)))
+        mnist_input = DataInputDataset(MNISTDataInputStream(*get_test_training_data(client_id, thread_runner.runner_settings.clients)))
 
     drifter_function = None
     drifted_data = None
@@ -237,22 +237,30 @@ def run_client(client_id, thread_runner):
     elif thread_runner.runner_settings.drift_type == "temporal_drift":
         drifter_function = partial(temporal_drift, **thread_runner.runner_settings.drifter_options)
         # drifted_data = DataInputDataset(MNISTDataInputStream(*get_test_training_data(client_id, thread_runner.clients)), drift_transformation=partial(temporal_drift, **thread_runner.runner_settings.drifter_options))
+    else:
+        drifter_function = lambda x, y, _: (x, y)
 
     # exit(0)mnist_input
     # print(mnist_input.data.train_data.shape)
     with TrainingSuite(client_id, learning_rate=thread_runner.client_learning_rate,
-                       folder=thread_runner.folder, load_save_data_directory=thread_runner.runner_settings.client_load_directory, load_only=thread_runner.runner_settings.load_only, reset_nn=thread_runner.runner_settings.reset_nn,selected_model=thread_runner.runner_settings.selected_model) as t:
-
+                       folder=thread_runner.folder, load_save_data_directory=thread_runner.runner_settings.client_load_directory, load_only=thread_runner.runner_settings.load_only, reset_nn=thread_runner.runner_settings.reset_nn, selected_model=thread_runner.runner_settings.selected_model) as t:
         t.set_dataset(mnist_input, drifter_function)
         list_of_last_results = []
-        mode = "train"
+        mode = "predict"
         last_test_check = 0
         prediction_epoch = 0
         current_dataset = mnist_input
         start_drift = False
 
-        if thread_runner.runner_settings.start_drifting:
-            t.validation_data_loader.drift_active = True
+        target_loss = thread_runner.runner_settings.target_loss
+
+        if thread_runner.runner_settings.start_deviation_target != 0:
+            target_loss = t.test_nn()
+            target_loss = target_loss + thread_runner.runner_settings.target_loss*target_loss
+
+
+        # if thread_runner.runner_settings.start_drifting:
+        #     t.validation_data_loader.drift_active = True
         while not thread_runner.get_global_stop():
             try:
                 if thread_runner.runner_settings.mode == "train":
@@ -289,6 +297,7 @@ def run_client(client_id, thread_runner):
                             else:
                                 t.set_drifting(True)
 
+
                             prediction_epoch += 1
                             sleep(5)
 
@@ -300,13 +309,25 @@ def run_client(client_id, thread_runner):
                             mode = "predict"
 
                     elif mode == "predict":
+                        if thread_runner.runner_settings.max_predict_epoch != 0 and prediction_epoch >= thread_runner.runner_settings.max_predict_epoch:
+                            t.log("We are finished!")
+                            break
+
                         image, target_label = get_random_prediction_mnist(current_dataset, drifter_function, prediction_epoch, start_drift)
                         p = t.predict(image, target_label, prediction_epoch)
                         t.log("Prediction ", p['item'], "should be ", target_label)
                         prediction_epoch += 1
-                        sleep(1)
-                        if prediction_epoch % 10 == 0:
-                            t.log("Sanity test of NN", t.test_nn())
+
+                        # Absolutely how it should NOT be done, but fuck it we ballin
+                        t.validation_data_loader.epoch = prediction_epoch
+                        t.training_data_loader.epoch = prediction_epoch
+                        # for _ in t.validation_data_loader:
+                        #     pass
+                        # for _ in t.training_data_loader:
+                        #     pass
+                        # sleep(0.1)
+                        if prediction_epoch % thread_runner.runner_settings.check_testing_repeating == 0:
+                            t.log("Sanity test of NN", t.test_nn(prediction_epoch=prediction_epoch))
 
                         if not thread_runner.runner_settings.disable_client_side_drift_detection:
                             if thread_runner.runner_settings.check_mode == "prediction":
@@ -317,8 +338,9 @@ def run_client(client_id, thread_runner):
 
                                 if len(list_of_last_results) == all_tests and all_tests - sum(list_of_last_results) >= failures:
                                     t.log("We have a failures! Double check with tests!")
-                                    loss = t.test_nn()
-                                    if loss > thread_runner.runner_settings.target_loss:
+                                    loss = t.test_nn(prediction_epoch=prediction_epoch)
+
+                                    if loss > target_loss:
                                         t.log("Target loss not met ", loss, ". Training!")
                                         mode = "train"
                                     else:
@@ -331,8 +353,8 @@ def run_client(client_id, thread_runner):
                                 if  last_test_check >= thread_runner.runner_settings.check_testing_repeating:
                                     t.log("Testing the predicted NN")
                                     last_test_check = 0
-                                    loss = t.test_nn()
-                                    if loss > thread_runner.runner_settings.target_loss:
+                                    loss = t.test_nn(prediction_epoch=prediction_epoch)
+                                    if loss > target_loss:
                                         t.log("Target loss not met ", loss, ". Training!")
                                         mode = "train"
 

@@ -86,11 +86,16 @@ def create_imbalanced_data(images, labels, rare_classes=[1, 7], common_classes=[
 
 #Temporal Drift
 #Gradually alter the distribution of features or labels over time.
-def temporal_drift(images, labels, epoch, max_time_steps=999, start_epoch=10):
+def temporal_drift(images, labels, epoch, noise_level=0.1, max_time_steps=999, start_epoch=10, max_time_epoch_drift=1000):
     if epoch <= start_epoch:
+        print("Not yet...")
         return images, labels
-    drift_factor = epoch / max_time_steps
-    noise = np.random.normal(0, drift_factor * 0.1, images.shape)
+    if epoch >= max_time_epoch_drift:
+        epoch = max_time_epoch_drift
+
+    drift_factor = (epoch-start_epoch) / max_time_steps
+    print(drift_factor)
+    noise = np.random.normal(0, drift_factor * noise_level, images.shape)
     return np.clip(images + noise, 0, 1).float(), labels
 
 # for time_step in range(100):  # Example over 100 time steps

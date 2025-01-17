@@ -23,6 +23,7 @@ server_models = {
 class ServerModelWrapper(nn.Module):
     def __init__(self, model_number=1):
         super(ServerModelWrapper, self).__init__()
+        print("Choosing server model 2")
         self.model_number = model_number
         self.model = server_models[model_number].server()
 
@@ -86,6 +87,8 @@ class ServerModel:
     def train_input(self, input_list: list, input_labels: list, depth=0):
         self.model.train()
         input_data = torch.tensor(input_list, requires_grad=True)
+        print(input_data.shape)
+
         labels = torch.tensor(input_labels).long()
 
         output = self.model(input_data)

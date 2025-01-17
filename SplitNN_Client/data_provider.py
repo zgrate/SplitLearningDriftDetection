@@ -131,13 +131,14 @@ class DriftDatasetLoader(DataLoader):
 
     iterator: _BaseDataLoaderIter
 
-    def __init__(self, dataset: Dataset, drifter, *args, **kwargs):
+    def __init__(self, dataset: Dataset, drifter, start_epoch, *args, **kwargs):
         super().__init__(dataset, *args, **kwargs)
         if drifter is None:
             drifter = lambda x, y, _: (x, y)
+
         self.drifter = drifter
         self.drift_active = False
-        self.epoch = 0
+        self.epoch = start_epoch
 
     def __iter__(self):
         self.iterator = super().__iter__()
@@ -147,4 +148,4 @@ class DriftDatasetLoader(DataLoader):
     def __next__(self):
         next_elements = next(self.iterator)
         self.epoch += 1
-        return self.drifter(*next_elements, epoch_diff) if self.drift_active else next_elements
+        return self.drifter(*next_elements, self.epoch) if self.drift_active else next_elements

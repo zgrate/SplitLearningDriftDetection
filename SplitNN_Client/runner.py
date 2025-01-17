@@ -8,6 +8,7 @@ from datetime import datetime
 from time import sleep
 from typing import Literal, Tuple, Self
 
+from django.utils.text import get_valid_filename
 from sympy import false
 
 from SplitNN_Client.client import run_client, ClientModel, TrainingSuite
@@ -19,6 +20,8 @@ class RunnerArguments:
 
     #Run Description
     description: str = ""
+
+    collected_folder_name: str = ""
 
     #Number of Clients
     clients: int = 5
@@ -38,12 +41,15 @@ class RunnerArguments:
 
     #Targets
 
-    #Test run for X seconds
-    second_running: int = 0
+    #Test run for max X seconds
+    second_running: int = 600
     #Max Epoch per client
     client_epoch_limit: int = 0
     # Target Loss of any function
     target_loss: float = 0.1
+
+    #stop runner after X prediction epochs
+    max_predict_epoch: int = 1000
 
     #should we wait for all clients to converge to target loss, or only one
     all_client_loss: bool = True
@@ -74,7 +80,7 @@ class RunnerArguments:
     predict_epochs_swap:int =  30
 
     #What type of drifting to add?
-    drift_type: Literal["add_noise", "temporal_drift", "swap_domain"] = "add_noise"
+    drift_type: Literal["dummy", "add_noise", "temporal_drift", "swap_domain"] = "dummy"
 
     #What type of checking to execute?
     check_mode: Literal["prediction", "testing"] = "prediction"
@@ -83,6 +89,9 @@ class RunnerArguments:
     #For testing mode, after how many prediction epochs should we do a check?
     check_testing_repeating: int = 10
 
+    #0 if make target_loss the basis for target
+    #any number above - max percentage error above the baseline checked in a first iteration
+    start_deviation_target: int = 0
 
     #Options for drifter function
     drifter_options: dict = None
@@ -103,7 +112,6 @@ class SplitLearningRunner:
     def __init__(self, runner_settings: RunnerArguments):
         self.runner_settings = runner_settings
         self.global_stop = False
-        self.clients = clients
         self.client_epochs_limit = runner_settings.client_epoch_limit
         self.seconds_running = runner_settings.second_running
         self.sync_mode = runner_settings.sync_mode
@@ -136,7 +144,7 @@ class SplitLearningRunner:
 
         threads = []
 
-        for i in range(self.clients):
+        for i in range(self.runner_settings.clients):
             print("Starting Client", i)
             t = threading.Thread(target=run_client, args=[i, self])
             threads.append(t)
@@ -153,6 +161,10 @@ class SplitLearningRunner:
         while not self.global_stop:
             try:
                 sleep(1)
+                if all([not x.is_alive() for x in threads]):
+                    print("All threads are done. Finishing the system")
+                    self.global_stop = True
+
                 if self.seconds_running > 0:
                     seconds_counter += 1
                     if seconds_counter % 15 == 0:
@@ -174,7 +186,7 @@ class SplitLearningRunner:
             "all_runner_options": self.runner_settings.__dict__,
             "client_model": str(sample_client.model.model),
             "client_optimizer": str(sample_client.optimizer),
-            "clients": self.clients,
+            "clients": self.runner_settings.clients,
             "sync_mode": self.sync_mode,
             "seconds_running": self.seconds_running,
             "client_folder": self.folder,
@@ -184,12 +196,14 @@ class SplitLearningRunner:
             print("KURWA")
 
 
-        self.collect_everything(data_res['server_data_folder'])
+        self.collect_everything(data_res['server_data_folder'], self.runner_settings)
         # while any(t.is_alive() for t in threads):
         #     sleep(1)
 
-    def collect_everything(self, server):
-        folder = datetime.now().strftime("collected_runtime/%Y_%m_%d_%H_%M_%S")
+    def collect_everything(self, server, runner_settings):
+        folder = datetime.now().strftime(f"{runner_settings.collected_folder_name}_%Y_%m_%d_%H_%M_%S")
+        folder = "collected_runtime/"+get_valid_filename(folder)
+
         os.makedirs(folder, exist_ok=True)
 
         if server:
@@ -254,6 +268,46 @@ if __name__ == "__main__":
         server_load_save_data = "server_test_2"
         client_load_directory = "client_test_2"
 
+        def get_model_variant(model, clnts):
+            return             (
+                {
+                'clients': clnts,
+                'selected_model': model,
+                'server_load_save_data': f"server_model_{clnts}_{model}",
+                'client_load_directory': f"client_model_{clnts}_{model}",
+            })
+
+        model_variants = [
+            # (0, 2),
+            # (0, 4),
+            # (0, 6),
+            # (0, 8),
+
+            (1, 2),
+            (1, 4),
+            (1, 6),
+            (1, 8),
+            (1, 10),
+            (1, 12),
+
+            (2, 2),
+            (2, 4),
+            (2, 6),
+            (2, 8),
+            (2, 10),
+            (2, 12),
+
+            (3, 2),
+            (3, 4),
+            (3, 6),
+            (3, 8),
+            (3, 10),
+            (3, 12),
+
+
+        ]
+
+
         params = {
             "clients": clients,
             'server_load_save_data': server_load_save_data,
@@ -263,15 +317,28 @@ if __name__ == "__main__":
         disabled_drift_detection = {
             "disable_client_side_drift_detection": True,
             "disable_server_side_drift_detection": True,
-            'server_load_save_data': "server_no_drift_detection_1",
-            'client_load_directory': "client_no_drift_detection_1",
+        }
+
+        client_side_drift_detection = {
+            "disable_client_side_drift_detection": False,
+            "disable_server_side_drift_detection": True,
+            "start_deviation_target": 0.2,
+            "predict_epochs_swap": 100
         }
 
         drift_settings_add_noise = {
             "drift_type": "add_noise",
-            "predict_epochs_swap": 20,
             "drifter_options": {
                 "noise_level": 0.2
+            },
+        }
+
+        drift_settings_temporal_drift = {
+            "drift_type": "temporal_drift",
+            "drifter_options": {
+                "max_time_steps": 500,
+                "start_epoch": 100,
+                "max_time_epoch_drift": 700
             },
         }
 
@@ -286,13 +353,40 @@ if __name__ == "__main__":
             "load_only": True
         }
 
+        training_settings = {
+            **fresh_run,
+            'target_loss': 0.4,
+            "mode": "train",
+        }
+
+        test_settings = {
+            **load_run,
+            'target_loss': 0.4,
+            "mode": "normal_runner",
+            "predict_epochs_swap": 100
+        }
+
+        clients_base = {"clients": 2}
+
+
         settings = [
+            #Main Test
+
+            # default.construct_runner(params, disabled_drift_detection, fresh_run, drift_settings_add_noise, shared_settings, training_settings, clients_base),
+            # default.construct_runner(params, disabled_drift_detection, load_run, drift_settings_add_noise,  shared_settings, clients_base),
+            # default.construct_runner(params, disabled_drift_detection, load_run, drift_settings_temporal_drift, shared_settings, clients_base)
+
             # {"clients": 2, **default},
 
-            #Default
-            default.construct_runner(params, disabled_drift_detection, fresh_run, drift_settings_add_noise, {'target_loss': 0.2, "mode": "train"}),
-            default.construct_runner(params, disabled_drift_detection, load_run, drift_settings_add_noise,
-                                     {'target_loss': 0.3, "mode": "normal_runner", "second_running": 300}),
+            #Default 5 client run with model 1 and no drift detection
+            # default.construct_runner(params, disabled_drift_detection, fresh_run, drift_settings_add_noise, shared_settings, {'target_loss': 0.2, "mode": "train"}),
+
+
+            #Add noise
+            # default.construct_runner(params, disabled_drift_detection, load_run, drift_settings_add_noise,  shared_settings),
+
+            #Temporal
+            # default.construct_runner(params, disabled_drift_detection, load_run, drift_settings_temporal_drift, shared_settings)
 
             # {**default, **params, **disabled_drift_detection, 'target_loss': 0.1, 'reset_logs': True, 'reset_nn': True, "mode": "normal_runner"},
             # {**default, **params, 'target_loss': 0.1, 'reset_logs': False, "load_only": False, 'reset_nn': False, "mode": "train"},
@@ -385,8 +479,34 @@ if __name__ == "__main__":
             # {"clients": 9, **default},
             # {"clients": 10, **default},
         ]
+        # settings = [
+        #     default.construct_runner({"description": str((2, 2))}, params, disabled_drift_detection, drift_settings_add_noise,
+        #                              training_settings, get_model_variant(2,2))
+        # ]
+        #
+
+        #All Training
+        # settings = [default.construct_runner({"description": str(x)}, disabled_drift_detection, drift_settings_add_noise, training_settings, get_model_variant(*x)) for x in [(2,10), (2,12), (3,10), (3,12)]]
+        # print(len(settings), settings)
+        #Add noise moment
+        # settings = [
+        #     default.construct_runner({"collected_folder_name": f"Noisy Model {x[0]} Clients {x[1]}", "description": "Noisy" + str(x)}, disabled_drift_detection, drift_settings_add_noise, test_settings, get_model_variant(*x)) for x in model_variants
+        # ]
+
+        # settings = [
+        #     default.construct_runner({"collected_folder_name": f"Temporal Model {x[0]} Clients {x[1]}", "description": "Temporal" + str(x)}, disabled_drift_detection, drift_settings_temporal_drift, test_settings, get_model_variant(*x)) for x in model_variants
+        # ]
+
+        x = (1, 6)
+        # settings = [
+        #     default.construct_runner({"collected_folder_name": f"Noise Add Model {x[0]} Clients {x[1]}", "description": "Noise Add" + str(x)}, client_side_drift_detection, drift_settings_add_noise, test_settings, get_model_variant(*x))
+        # ]
+
+        settings = [
+            default.construct_runner({"collected_folder_name": f"temportal Add Model {x[0]} Clients {x[1]}", "description": "Noise Add" + str(x)}, client_side_drift_detection, drift_settings_temporal_drift, test_settings, get_model_variant(*x))
+        ]
         for setting in settings:
-            print("Running", setting)
+            print("Running", setting, setting.description)
             SplitLearningRunner(setting).start_runner()
             print("Runner Finished! You can stop here or wait for next run")
             sleep(30)

@@ -267,7 +267,6 @@ def prepare_running(request):
         PredictionLog.objects.all().delete()
 
     if global_server_model.options['selected_model'] != global_server_model.model.model_number:
-        print("Swapping models")
         global_server_model.reset_local_nn(options['selected_model'])
 
     clients_amount = options['clients']
