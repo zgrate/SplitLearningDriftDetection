@@ -13,6 +13,7 @@ from sympy import false
 
 from SplitNN_Client.client import run_client, ClientModel, TrainingSuite
 from SplitNN_Client.server_connection import ServerConnection
+import json
 
 
 @dataclass(frozen=True)
@@ -80,7 +81,7 @@ class RunnerArguments:
     predict_epochs_swap:int =  30
 
     #What type of drifting to add?
-    drift_type: Literal["dummy", "add_noise", "temporal_drift", "swap_domain"] = "dummy"
+    drift_type: Literal["dummy", "add_noise", "temporal_drift", "temporal_drift_client", "swap_domain"] = "dummy"
 
     #What type of checking to execute?
     check_mode: Literal["prediction", "testing"] = "prediction"
@@ -99,6 +100,11 @@ class RunnerArguments:
     drifting_clients: list = None
     #You can define here, what clients should get what labels
     labels_filter: dict = None
+
+
+    server_zscore_deviation: int = 5
+    server_error_threshold: float = 0.2
+    server_filter_last_tests: int = 50
 
     def construct_runner(self, *args: dict) -> Self:
         new_dict = {**self.__dict__}
@@ -319,27 +325,62 @@ if __name__ == "__main__":
             "disable_server_side_drift_detection": True,
         }
 
+        enable_drift = {
+            "predict_epochs_swap": 100
+        }
+
         client_side_drift_detection = {
             "disable_client_side_drift_detection": False,
             "disable_server_side_drift_detection": True,
             "start_deviation_target": 0.2,
-            "predict_epochs_swap": 100
+            'check_mode': "prediction",
+            'prediction_errors_count': (2, 10),
+            'check_testing_repeating': 20
+        }
+
+        server_side_drift_detection = {
+            "disable_client_side_drift_detection": True,
+            "disable_server_side_drift_detection": False,
+
+            'server_zscore_deviation': 2,
+            'server_error_threshold': 0.2,
+            'server_filter_last_tests': 10,
+            "second_running": 900
+        }
+
+        full_drift_detection = {
+            **client_side_drift_detection,
+            **server_side_drift_detection
         }
 
         drift_settings_add_noise = {
+            **enable_drift,
             "drift_type": "add_noise",
             "drifter_options": {
-                "noise_level": 0.2
+                "noise_level": 0.1
             },
         }
 
         drift_settings_temporal_drift = {
+            **enable_drift,
             "drift_type": "temporal_drift",
             "drifter_options": {
                 "max_time_steps": 500,
                 "start_epoch": 100,
                 "max_time_epoch_drift": 700
             },
+
+        }
+
+        drift_settings_temporal_drift_client = {
+            **enable_drift,
+            "drift_type": "temporal_drift_client",
+            "drifter_options": {
+                "max_time_steps": 500,
+                "start_epoch": 100,
+                "max_time_epoch_drift": 700
+            },
+
         }
 
         fresh_run = {
@@ -502,9 +543,53 @@ if __name__ == "__main__":
         #     default.construct_runner({"collected_folder_name": f"Noise Add Model {x[0]} Clients {x[1]}", "description": "Noise Add" + str(x)}, client_side_drift_detection, drift_settings_add_noise, test_settings, get_model_variant(*x))
         # ]
 
+        # settings = [
+        #     default.construct_runner({"collected_folder_name": f"temportal Add Model {x[0]} Clients {x[1]}", "description": "Noise Add" + str(x)}, client_side_drift_detection, drift_settings_temporal_drift, test_settings, get_model_variant(*x))
+        # ]
+
+        # settings = [
+        #     default.construct_runner({"collected_folder_name": f"server side temportal Add Model {x[0]} Clients {x[1]}", "description": "Noise Add" + str(x)}, server_side_drift_detection, drift_settings_temporal_drift, test_settings, get_model_variant(*x))
+        # ]
+
         settings = [
-            default.construct_runner({"collected_folder_name": f"temportal Add Model {x[0]} Clients {x[1]}", "description": "Noise Add" + str(x)}, client_side_drift_detection, drift_settings_temporal_drift, test_settings, get_model_variant(*x))
+            default.construct_runner({"collected_folder_name": f"server side temportal Add Model {x[0]} Clients {x[1]}", "description": "Noise Add" + str(x)}, server_side_drift_detection, drift_settings_temporal_drift_client, test_settings, get_model_variant(*x))
         ]
+
+        queue_file = "queue.json"
+        errors_file = "errors.json"
+        if not os.path.exists(queue_file):
+            shutil.copy("output.json", queue_file)
+
+        with open(queue_file) as f:
+            queue = json.load(f)
+
+        settings = [RunnerArguments(**x) for x in queue]
+
+        print(settings)
+        for i in range(len(settings)):
+            setting = settings.pop(0)
+            if setting.clients == 2:
+                continue
+            print("Running", setting, setting.description)
+            try:
+                SplitLearningRunner(setting).start_runner()
+            except Exception as e:
+                print("Error running file! Reporting errorr")
+                with open("errors_file", "a") as f:
+                    f.write(str(e) + "\n")
+                    json.dump(setting.__dict__, f)
+            print("Runner Finished! You can stop here or wait for next run")
+            print(f"left {len(settings)}")
+            with open("queue.json", "w") as f:
+                json.dump([x.__dict__ for x in settings], f)
+            print("Saved queue!")
+
+            sleep(10)
+
+
+
+
+        exit(0)
         for setting in settings:
             print("Running", setting, setting.description)
             SplitLearningRunner(setting).start_runner()

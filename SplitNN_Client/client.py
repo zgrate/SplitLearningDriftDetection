@@ -154,7 +154,7 @@ class TrainingSuite:
     def test_nn(self, prediction_epoch=None):
         print("TESTING NN")
         self.model.eval()
-
+        any_drift_attempt = False
         with torch.no_grad():
             losses = []
             for X, y in self.validation_data_loader:
@@ -164,10 +164,15 @@ class TrainingSuite:
                     return False
 
                 response = self.server.test_request(output, y, self.epoch)
+
+                if response['client_drifting']:
+                    print("its drifting!")
+                    any_drift_attempt = True
+
                 losses.append(response['loss'])
 
         self.log("TEST_LOSS", sum(losses) / len(losses))
-        return sum(losses) / len(losses)
+        return sum(losses) / len(losses), any_drift_attempt
 
     def predict(self, input, target_label: Tensor=None, prediction_epoch=None):
         if prediction_epoch is None:
@@ -236,6 +241,9 @@ def run_client(client_id, thread_runner):
         drifted_data = DataInputDataset(MNISTDataInputStream(*get_separated_by_labels(thread_runner.runner_settings.labels_filter[domain_id])))
     elif thread_runner.runner_settings.drift_type == "temporal_drift":
         drifter_function = partial(temporal_drift, **thread_runner.runner_settings.drifter_options)
+    elif thread_runner.runner_settings.drift_type == "temporal_drift_client":
+        drifter_function = partial(temporal_drift, **{**thread_runner.runner_settings.drifter_options, "max_time_steps": thread_runner.runner_settings.drifter_options.get("max_time_steps", 999) * (client_id+1)})
+
         # drifted_data = DataInputDataset(MNISTDataInputStream(*get_test_training_data(client_id, thread_runner.clients)), drift_transformation=partial(temporal_drift, **thread_runner.runner_settings.drifter_options))
     else:
         drifter_function = lambda x, y, _: (x, y)
@@ -255,7 +263,7 @@ def run_client(client_id, thread_runner):
         target_loss = thread_runner.runner_settings.target_loss
 
         if thread_runner.runner_settings.start_deviation_target != 0:
-            target_loss = t.test_nn()
+            target_loss, _ = t.test_nn()
             target_loss = target_loss + thread_runner.runner_settings.target_loss*target_loss
 
 
@@ -326,8 +334,15 @@ def run_client(client_id, thread_runner):
                         # for _ in t.training_data_loader:
                         #     pass
                         # sleep(0.1)
-                        if prediction_epoch % thread_runner.runner_settings.check_testing_repeating == 0:
-                            t.log("Sanity test of NN", t.test_nn(prediction_epoch=prediction_epoch))
+                        if thread_runner.runner_settings.check_testing_repeating > 0 and prediction_epoch % thread_runner.runner_settings.check_testing_repeating == 0:
+                            loss, is_drifting = t.test_nn(prediction_epoch=prediction_epoch)
+                            t.log("Sanity test of NN", loss, "with drifting", is_drifting)
+
+                            if is_drifting:
+                                print("Server says i am drifting! start drift mitigation...")
+                                mode = "train"
+
+
 
                         if not thread_runner.runner_settings.disable_client_side_drift_detection:
                             if thread_runner.runner_settings.check_mode == "prediction":
@@ -338,10 +353,10 @@ def run_client(client_id, thread_runner):
 
                                 if len(list_of_last_results) == all_tests and all_tests - sum(list_of_last_results) >= failures:
                                     t.log("We have a failures! Double check with tests!")
-                                    loss = t.test_nn(prediction_epoch=prediction_epoch)
+                                    loss, is_drifting = t.test_nn(prediction_epoch=prediction_epoch)
 
-                                    if loss > target_loss:
-                                        t.log("Target loss not met ", loss, ". Training!")
+                                    if loss > target_loss or is_drifting:
+                                        t.log("Target loss not met ", loss, f" and server says {is_drifting}. Training!")
                                         mode = "train"
                                     else:
                                         t.log("is OK")
@@ -353,9 +368,9 @@ def run_client(client_id, thread_runner):
                                 if  last_test_check >= thread_runner.runner_settings.check_testing_repeating:
                                     t.log("Testing the predicted NN")
                                     last_test_check = 0
-                                    loss = t.test_nn(prediction_epoch=prediction_epoch)
-                                    if loss > target_loss:
-                                        t.log("Target loss not met ", loss, ". Training!")
+                                    loss, is_drifting = t.test_nn(prediction_epoch=prediction_epoch)
+                                    if loss > target_loss or is_drifting:
+                                        t.log("Target loss not met ", loss, f" or server says {is_drifting}. Training!")
                                         mode = "train"
 
 

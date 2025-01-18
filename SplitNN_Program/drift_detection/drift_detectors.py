@@ -165,22 +165,21 @@ def check_average_drift_of_client(client_id, zscore_deviation=5, error_threshold
 
         average_drift_per_client = list(TrainingLog.objects.filter(id__in=clients, mode='test').values("client_id").annotate(average=Avg("loss"), count=Count("id")))
 
-        print(average_drift_per_client)
 
         index_of = average_drift_per_client.index(next(x for x in average_drift_per_client if x['client_id'] == str(client_id)))
         avrg_of_client = average_drift_per_client.pop(index_of)
 
         weighted_average = sum(x['average']*x['count'] for x in average_drift_per_client)/sum(x['count'] for x in average_drift_per_client)
-        print(weighted_average - avrg_of_client['average'] )
-        if  avrg_of_client['average'] - weighted_average < error_threshold:
+        print(avrg_of_client['average']/weighted_average, error_threshold)
+        if  avrg_of_client['average']/weighted_average < error_threshold:
             return False
 
         sd = math.sqrt(sum(x['count'] * (x['average'] - weighted_average) ** 2 for x in average_drift_per_client)/sum(x['count'] for x in average_drift_per_client))
         Z = (avrg_of_client['average'] - weighted_average)/sd
-        print(Z, avrg_of_client['average']-weighted_average)
-
+        print(Z, zscore_deviation, sd)
         if Z >= zscore_deviation:
             return True
+
     except Exception as ex:
         print(ex)
         print("WE have an error. We will probably wait it thorugh....")
