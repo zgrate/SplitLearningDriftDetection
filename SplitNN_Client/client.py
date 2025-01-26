@@ -7,15 +7,16 @@ from os import path
 from time import sleep
 
 import torch
+from sympy.codegen import Print
 from torch import nn, Tensor
 from torch.utils.data import Subset
 
-from SplitNN_Client.data_provider import AbstractDataInputStream, MNISTDataInputStream, get_test_training_data, \
+from data_provider import AbstractDataInputStream, MNISTDataInputStream, get_test_training_data, \
     DataInputDataset, DriftDatasetLoader, get_separated_by_labels
-from SplitNN_Client.drifted_data_creator import add_noise, temporal_drift
-from SplitNN_Client.drifting_simulation import RandomDrifter, AbstractDrifter
-from SplitNN_Client.nn_models import ClientServerModel0, ClientServerModel1, ClientServerModel2, ClientServerModel3
-from SplitNN_Client.server_connection import ServerConnection
+from drifted_data_creator import add_noise, temporal_drift
+from drifting_simulation import RandomDrifter, AbstractDrifter
+from nn_models import ClientServerModel0, ClientServerModel1, ClientServerModel2, ClientServerModel3
+from server_connection import ServerConnection
 
 
 models = {
@@ -151,7 +152,7 @@ class TrainingSuite:
         self.last_whole_training_time = (datetime.now() - client_start_time).total_seconds()
         return loss
 
-    def test_nn(self, prediction_epoch=None):
+    def test_nn(self, prediction_epoch=None, type="test"):
         print("TESTING NN")
         self.model.eval()
         any_drift_attempt = False
@@ -163,7 +164,7 @@ class TrainingSuite:
                     self.log("NaN/Inf values detected. Local NN should be reset")
                     return False
 
-                response = self.server.test_request(output, y, self.epoch)
+                response = self.server.test_request(output, y, self.epoch, type)
 
                 if response['client_drifting']:
                     print("its drifting!")
@@ -218,7 +219,7 @@ def get_random_prediction_mnist(input_data: DataInputDataset, drifter_function=N
     return drifter_function(data.view(1, 28, 28), label, prediction_epoch)
 
 def run_client(client_id, thread_runner):
-    from SplitNN_Client.runner import SplitLearningRunner
+    from runner import SplitLearningRunner
     thread_runner: SplitLearningRunner
     if thread_runner.runner_settings.labels_filter is not None:
         mnist_input = DataInputDataset(MNISTDataInputStream(*get_separated_by_labels(thread_runner.runner_settings.labels_filter[client_id])))
@@ -259,6 +260,8 @@ def run_client(client_id, thread_runner):
         prediction_epoch = 0
         current_dataset = mnist_input
         start_drift = False
+        train_iterations_in_client = 0
+        max_train_iterations = 100
 
         target_loss = thread_runner.runner_settings.target_loss
 
@@ -312,11 +315,15 @@ def run_client(client_id, thread_runner):
                     if mode == "train":
                         t.log("Training round")
                         loss = t.train_round(False)
-                        if loss <= thread_runner.runner_settings.target_loss:
+                        train_iterations_in_client += 1
+
+                        if loss <= thread_runner.runner_settings.target_loss or (loss <= target_loss and train_iterations_in_client >= max_train_iterations):
                             t.log("We are trained! Going back to predicting...")
                             mode = "predict"
 
                     elif mode == "predict":
+                        train_iterations_in_client = 0
+
                         if thread_runner.runner_settings.max_predict_epoch != 0 and prediction_epoch >= thread_runner.runner_settings.max_predict_epoch:
                             t.log("We are finished!")
                             break
@@ -335,7 +342,7 @@ def run_client(client_id, thread_runner):
                         #     pass
                         # sleep(0.1)
                         if thread_runner.runner_settings.check_testing_repeating > 0 and prediction_epoch % thread_runner.runner_settings.check_testing_repeating == 0:
-                            loss, is_drifting = t.test_nn(prediction_epoch=prediction_epoch)
+                            loss, is_drifting = t.test_nn(prediction_epoch=prediction_epoch, type="sanity")
                             t.log("Sanity test of NN", loss, "with drifting", is_drifting)
 
                             if is_drifting:
@@ -376,4 +383,8 @@ def run_client(client_id, thread_runner):
 
             except KeyboardInterrupt:
                 break
+
+            except Exception:
+              pass
+
         t.log("Stopping client")

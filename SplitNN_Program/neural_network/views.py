@@ -5,6 +5,7 @@ import threading
 import shutil
 
 import torch
+from django.db import transaction
 from django.db.models import StdDev, Avg, Min, Max, Sum
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
@@ -63,27 +64,28 @@ def train(request):
     data_amount = sys.getsizeof(request.data)
 
     training_time = datetime.datetime.now()
+    with transaction.atomic():
 
-    with lock:
-        return_data, loss = global_server_model.train_input(request.data['output'], request.data['labels'])
-        time_length = (datetime.datetime.now() - training_time).total_seconds()
+        with lock:
+            return_data, loss = global_server_model.train_input(request.data['output'], request.data['labels'])
+            time_length = (datetime.datetime.now() - training_time).total_seconds()
 
-        data = {"gradients": return_data, "loss": loss}
+            data = {"gradients": return_data, "loss": loss}
 
-        # if return_data.isnan().any() or return_data.isinf().any():
-        #     print("THIS SHOULD NOT BE ERROR!")
-        #     return Response({})
-        report_training(loss, client_id, local_epoch, global_server_model.epoch, time_length, last_communication_time,
-                        last_whole_training_time)
+            # if return_data.isnan().any() or return_data.isinf().any():
+            #     print("THIS SHOULD NOT BE ERROR!")
+            #     return Response({})
+            report_training(loss, client_id, local_epoch, global_server_model.epoch, time_length, last_communication_time,
+                            last_whole_training_time)
 
-        report_usage("train", data_amount, client_id, direction_to_server=True)
-        report_usage("train", sys.getsizeof(data), client_id, direction_to_server=False)
+            report_usage("train", data_amount, client_id, direction_to_server=True)
+            report_usage("train", sys.getsizeof(data), client_id, direction_to_server=False)
 
-        global current_client
+            global current_client
 
-        current_client += 1
-        if current_client >= clients_amount:
-            current_client = 0
+            current_client += 1
+            if current_client >= clients_amount:
+                current_client = 0
 
         return Response(data)
 
@@ -92,45 +94,48 @@ def train(request):
 def test(request):
     client_id = request.data["client_id"]
     local_epoch = request.data["local_epoch"]
+    type_test = request.data['type']
 
-    report_usage("test", sys.getsizeof(request.data), client_id, direction_to_server=True)
+    with transaction.atomic():
 
-    with lock:
-        loss = global_server_model.test(request.data['output'], request.data['labels'])
+        report_usage(type_test, sys.getsizeof(request.data), client_id, direction_to_server=True)
 
-    report_training(float(loss), client_id, local_epoch, global_server_model.epoch, 0, 0, 0, mode="test")
+        with lock:
+            loss = global_server_model.test(request.data['output'], request.data['labels'])
 
-    if global_server_model.options['disable_server_side_drift_detection']:
-        client_drifting = False
-    else:
-        print("Trying to drift detect", global_server_model.drift_detection_suite.drift_detection_run(), global_server_model.drift_detection_suite.drift_detection_class.get_regression())
-        client_drifting = check_average_drift_of_client(client_id, global_server_model.options['server_zscore_deviation'], global_server_model.options['server_error_threshold'], global_server_model.options['server_filter_last_tests'])
+        report_training(float(loss), client_id, local_epoch, global_server_model.epoch, 0, 0, 0, mode=type_test)
 
-    d = {"loss": loss, "client_drifting": client_drifting}
+        if global_server_model.options['disable_server_side_drift_detection']:
+            client_drifting = False
+        else:
+            print("Trying to drift detect", global_server_model.drift_detection_suite.drift_detection_run(), global_server_model.drift_detection_suite.drift_detection_class.get_regression())
+            client_drifting = check_average_drift_of_client(client_id, global_server_model.options['server_zscore_deviation'], global_server_model.options['server_error_threshold'], global_server_model.options['server_filter_last_tests'])
 
-    report_usage("test", sys.getsizeof(d), client_id, direction_to_server=False)
+        d = {"loss": loss, "client_drifting": client_drifting}
+
+        report_usage(type_test, sys.getsizeof(d), client_id, direction_to_server=False)
 
     return Response(d)
 
 
 @api_view(["POST"])
 def predict(request):
-    client_id = request.data["client_id"]
-    local_epoch = request.data["local_epoch"]
+    with transaction.atomic():
+        client_id = request.data["client_id"]
+        local_epoch = request.data["local_epoch"]
 
+        report_usage("predict", sys.getsizeof(request.data), client_id, direction_to_server=True)
+        with lock:
+            predicted = global_server_model.predict(request.data['output'])
+            probabilities = torch.exp(predicted)
+            probabilities[probabilities == float("Inf")] = 0
 
-    report_usage("predict", sys.getsizeof(request.data), client_id, direction_to_server=True)
-    with lock:
-        predicted = global_server_model.predict(request.data['output'])
-        probabilities = torch.exp(predicted)
-        probabilities[probabilities == float("Inf")] = 0
+            data = {"predicted": probabilities, "item": torch.argmax(probabilities, dim=1).item()}
 
-        data = {"predicted": probabilities, "item": torch.argmax(probabilities, dim=1).item()}
+        # if "target_label" in request.data and request.data["target_label"] is not None:
+        PredictionLog(client_id=client_id, client_epoch=request.data['local_epoch'], server_epoch=global_server_model.epoch, prediction_result=str(data['item']), expected_result=str(request.data['target_label'])).save()
 
-    # if "target_label" in request.data and request.data["target_label"] is not None:
-    PredictionLog(client_id=client_id, client_epoch=request.data['local_epoch'], server_epoch=global_server_model.epoch, prediction_result=str(data['item']), expected_result=str(request.data['target_label'])).save()
-
-    report_usage("predict", sys.getsizeof(data), client_id, direction_to_server=False)
+        report_usage("predict", sys.getsizeof(data), client_id, direction_to_server=False)
 
     return Response(data)
 

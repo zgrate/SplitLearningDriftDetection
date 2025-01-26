@@ -11,8 +11,8 @@ from typing import Literal, Tuple, Self
 from django.utils.text import get_valid_filename
 from sympy import false
 
-from SplitNN_Client.client import run_client, ClientModel, TrainingSuite
-from SplitNN_Client.server_connection import ServerConnection
+from client import run_client, ClientModel, TrainingSuite
+from server_connection import ServerConnection
 import json
 
 
@@ -289,26 +289,23 @@ if __name__ == "__main__":
             # (0, 6),
             # (0, 8),
 
-            (1, 2),
+            # (1, 2),
             (1, 4),
-            (1, 6),
             (1, 8),
-            (1, 10),
-            (1, 12),
+            (1, 16),
+            (1, 32),
 
-            (2, 2),
             (2, 4),
-            (2, 6),
             (2, 8),
-            (2, 10),
-            (2, 12),
-
-            (3, 2),
-            (3, 4),
-            (3, 6),
-            (3, 8),
-            (3, 10),
-            (3, 12),
+            (2, 16),
+            (2, 32),
+            # (2, 10),
+            # (2, 12),
+            #
+            # (3, 4),
+            # (3, 8),
+            # (3, 16),
+            # (3, 32)
 
 
         ]
@@ -395,7 +392,9 @@ if __name__ == "__main__":
         }
 
         training_settings = {
-            **fresh_run,
+            "reset_nn": False,
+            "reset_logs": True,
+            "load_only": False,
             'target_loss': 0.4,
             "mode": "train",
         }
@@ -527,7 +526,7 @@ if __name__ == "__main__":
         #
 
         #All Training
-        # settings = [default.construct_runner({"description": str(x)}, disabled_drift_detection, drift_settings_add_noise, training_settings, get_model_variant(*x)) for x in [(2,10), (2,12), (3,10), (3,12)]]
+        settings = [default.construct_runner({"description": str(x)}, training_settings, get_model_variant(*x)) for x in model_variants]
         # print(len(settings), settings)
         #Add noise moment
         # settings = [
@@ -551,50 +550,50 @@ if __name__ == "__main__":
         #     default.construct_runner({"collected_folder_name": f"server side temportal Add Model {x[0]} Clients {x[1]}", "description": "Noise Add" + str(x)}, server_side_drift_detection, drift_settings_temporal_drift, test_settings, get_model_variant(*x))
         # ]
 
-        settings = [
-            default.construct_runner({"collected_folder_name": f"server side temportal Add Model {x[0]} Clients {x[1]}", "description": "Noise Add" + str(x)}, server_side_drift_detection, drift_settings_temporal_drift_client, test_settings, get_model_variant(*x))
-        ]
+        # settings = [
+        #     default.construct_runner({"collected_folder_name": f"server side temportal Add Model {x[0]} Clients {x[1]}", "description": "Noise Add" + str(x)}, server_side_drift_detection, drift_settings_temporal_drift_client, test_settings, get_model_variant(*x))
+        # ]
+        if True:
+            while True:
+                queue_file = "queue.json"
+                errors_file = "errors.json"
+                if not os.path.exists(queue_file):
+                    shutil.copy("output_target.json", queue_file)
 
-        queue_file = "queue.json"
-        errors_file = "errors.json"
-        if not os.path.exists(queue_file):
-            shutil.copy("output.json", queue_file)
+                with open(queue_file) as f:
+                    queue = json.load(f)
 
-        with open(queue_file) as f:
-            queue = json.load(f)
+                settings = [RunnerArguments(**x) for x in queue]
 
-        settings = [RunnerArguments(**x) for x in queue]
+                print(settings)
+                for i in range(len(settings)):
+                    setting = settings.pop(0)
+                    if setting.clients == 2:
+                        continue
+                    print("Running", setting, setting.description)
+                    try:
+                        SplitLearningRunner(setting).start_runner()
+                    except Exception as e:
+                        print("Error running file! Reporting errorr")
+                        with open("errors_file", "a") as f:
+                            f.write(str(e) + "\n")
+                            json.dump(setting.__dict__, f)
+                    print("Runner Finished! You can stop here or wait for next run")
+                    print(f"left {len(settings)}")
+                    with open("queue.json", "w") as f:
+                        json.dump([x.__dict__ for x in settings], f)
+                    print("Saved queue!")
 
-        print(settings)
-        for i in range(len(settings)):
-            setting = settings.pop(0)
-            if setting.clients == 2:
-                continue
-            print("Running", setting, setting.description)
-            try:
-                SplitLearningRunner(setting).start_runner()
-            except Exception as e:
-                print("Error running file! Reporting errorr")
-                with open("errors_file", "a") as f:
-                    f.write(str(e) + "\n")
-                    json.dump(setting.__dict__, f)
-            print("Runner Finished! You can stop here or wait for next run")
-            print(f"left {len(settings)}")
-            with open("queue.json", "w") as f:
-                json.dump([x.__dict__ for x in settings], f)
-            print("Saved queue!")
+                    sleep(10)
+                print("Finished the run! repeating...")
+                os.remove("queue.json")
+                sleep(60)
 
-            sleep(10)
-
-
-
-
-        exit(0)
         for setting in settings:
             print("Running", setting, setting.description)
             SplitLearningRunner(setting).start_runner()
             print("Runner Finished! You can stop here or wait for next run")
-            sleep(30)
+            sleep(10)
         exit(0)
 
     setting = {

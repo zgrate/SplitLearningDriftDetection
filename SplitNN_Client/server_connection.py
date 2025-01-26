@@ -46,9 +46,9 @@ class ServerConnection:
 
         return None
 
-    def test_request(self, output: Tensor, test_labels: Tensor, local_epoch):
+    def test_request(self, output: Tensor, test_labels: Tensor, local_epoch, type):
         response = self.post(TEST_API, {"output": output.tolist(), "labels": test_labels.tolist(),
-                                        "client_id": str(self.client_token), "local_epoch": local_epoch})
+                                        "client_id": str(self.client_token), "local_epoch": local_epoch, "type": type})
         if response.status_code == 200:
             return response.json()
 

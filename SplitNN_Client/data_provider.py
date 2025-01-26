@@ -12,7 +12,6 @@ from torch.utils.data.dataloader import _BaseDataLoaderIter
 from torchvision import transforms
 from torchvision.datasets import MNIST
 
-from SplitNN_Client.drifting_simulation import AbstractDrifter
 
 
 # def client_fn(context: Context):
