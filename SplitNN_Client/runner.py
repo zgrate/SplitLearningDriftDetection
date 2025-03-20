@@ -43,11 +43,16 @@ class RunnerArguments:
     #Targets
 
     #Test run for max X seconds
-    second_running: int = 600
+    second_running: int = 6000
     #Max Epoch per client
     client_epoch_limit: int = 0
     # Target Loss of any function
     target_loss: float = 0.1
+
+    absolute_target: bool = True
+
+    # optimiser to use
+    optimiser: Literal["sgd", "adamw"] = "sgd"
 
     #stop runner after X prediction epochs
     max_predict_epoch: int = 1000
@@ -81,7 +86,7 @@ class RunnerArguments:
     predict_epochs_swap:int =  30
 
     #What type of drifting to add?
-    drift_type: Literal["dummy", "add_noise", "temporal_drift", "temporal_drift_client", "swap_domain"] = "dummy"
+    drift_type: Literal["dummy", "add_noise", "temporal_drift", "temporal_drift_client", "swap_domain", "half_clients_drift"] = "dummy"
 
     #What type of checking to execute?
     check_mode: Literal["prediction", "testing"] = "prediction"
@@ -284,28 +289,36 @@ if __name__ == "__main__":
             })
 
         model_variants = [
+            # (0, 1),
             # (0, 2),
             # (0, 4),
-            # (0, 6),
-            # (0, 8),
+            #(0, 8),
+            # (0, 16),
+              # (0, 32),
 
+            # (1, 1),
             # (1, 2),
-            (1, 4),
-            (1, 8),
-            (1, 16),
-            (1, 32),
-
-            (2, 4),
-            (2, 8),
-            (2, 16),
-            (2, 32),
-            # (2, 10),
+            # (1, 4),
+            # (1, 8),
+            # (1, 16),
+            # (1, 32),
+            #
+            # (2, 1),
+            # (2, 2),
+            # (2, 4)
+            # (2, 4),
+            # (2, 8),
+            # (2, 16),
+            # (2, 32),
+            # # (2, 10),
             # (2, 12),
             #
             # (3, 4),
             # (3, 8),
             # (3, 16),
             # (3, 32)
+
+            (4, 4)
 
 
         ]
@@ -391,12 +404,19 @@ if __name__ == "__main__":
             "load_only": True
         }
 
+        zero_training = {
+            "optimiser": "sgd",
+            "server_optimiser_options": {"lr": 0.0001},
+            # "load_only": True,
+        }
+
         training_settings = {
             "reset_nn": False,
             "reset_logs": True,
             "load_only": False,
             'target_loss': 0.4,
             "mode": "train",
+            'second_running': 1800
         }
 
         test_settings = {
@@ -404,6 +424,11 @@ if __name__ == "__main__":
             'target_loss': 0.4,
             "mode": "normal_runner",
             "predict_epochs_swap": 100
+        }
+
+        debug_test_settings = {
+            **load_run,
+            "mode": "test"
         }
 
         clients_base = {"clients": 2}
@@ -526,7 +551,9 @@ if __name__ == "__main__":
         #
 
         #All Training
-        settings = [default.construct_runner({"description": str(x)}, training_settings, get_model_variant(*x)) for x in model_variants]
+        settings = [default.construct_runner({"description": str(x)}, training_settings, zero_training, get_model_variant(*x)) for x in model_variants]
+
+        #settings = settings + [default.construct_runner({"description": str(x)}, debug_test_settings, get_model_variant(*x)) for x in model_variants]
         # print(len(settings), settings)
         #Add noise moment
         # settings = [
@@ -553,12 +580,12 @@ if __name__ == "__main__":
         # settings = [
         #     default.construct_runner({"collected_folder_name": f"server side temportal Add Model {x[0]} Clients {x[1]}", "description": "Noise Add" + str(x)}, server_side_drift_detection, drift_settings_temporal_drift_client, test_settings, get_model_variant(*x))
         # ]
-        if True:
+        if False:
             while True:
                 queue_file = "queue.json"
                 errors_file = "errors.json"
                 if not os.path.exists(queue_file):
-                    shutil.copy("output_target.json", queue_file)
+                    shutil.copy("output_zero.json", queue_file)
 
                 with open(queue_file) as f:
                     queue = json.load(f)
@@ -587,13 +614,16 @@ if __name__ == "__main__":
                     sleep(10)
                 print("Finished the run! repeating...")
                 os.remove("queue.json")
+                # exit()
+                # shutil.copy("output_target.json", queue_file)
                 sleep(60)
 
-        for setting in settings:
-            print("Running", setting, setting.description)
-            SplitLearningRunner(setting).start_runner()
-            print("Runner Finished! You can stop here or wait for next run")
-            sleep(10)
+        for i in range(0, 1):
+            for setting in settings:
+                print("Running", setting, setting.description)
+                SplitLearningRunner(setting).start_runner()
+                print("Runner Finished! You can stop here or wait for next run")
+                sleep(10)
         exit(0)
 
     setting = {

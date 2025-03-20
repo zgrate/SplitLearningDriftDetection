@@ -15,7 +15,7 @@ from data_provider import AbstractDataInputStream, MNISTDataInputStream, get_tes
     DataInputDataset, DriftDatasetLoader, get_separated_by_labels
 from drifted_data_creator import add_noise, temporal_drift
 from drifting_simulation import RandomDrifter, AbstractDrifter
-from nn_models import ClientServerModel0, ClientServerModel1, ClientServerModel2, ClientServerModel3
+from nn_models import ClientServerModel0, ClientServerModel1, ClientServerModel2, ClientServerModel3, CNNClientServerModel1, CNNClientServerModel2
 from server_connection import ServerConnection
 
 
@@ -23,7 +23,9 @@ models = {
     0: ClientServerModel0,
     1: ClientServerModel1,
     2: ClientServerModel2,
-    3: ClientServerModel3
+    3: ClientServerModel3,
+    4: CNNClientServerModel1,
+    5: CNNClientServerModel2
 }
 
 
@@ -50,6 +52,11 @@ class ClientModel(nn.Module):
 class Constants:
     API_TRAIN = "/train"
 
+optimisers = {
+    "sgd": torch.optim.SGD,
+    "adamw": torch.optim.AdamW
+}
+
 
 class TrainingSuite:
 
@@ -63,8 +70,9 @@ class TrainingSuite:
             self.logger_file.write(s)
             self.logger_file.flush()
 
-    def __init__(self, client_id, optimizer=torch.optim.SGD,
+    def __init__(self, client_id, optimiser="sgd", server_opt_options=dict(),
                  learning_rate=0.001, folder: str = "folder", load_save_data_directory: str = None, load_only=False, reset_nn=True, selected_model=1):
+        self.selected_model = selected_model
         self.validation_data_loader = None
         self.training_data_loader = None
         self.validation_data = None
@@ -86,8 +94,9 @@ class TrainingSuite:
             #                                                         batch_size=len(self.training_data.indices))
             # self.validation_data_loader = DriftDatasetLoader(self.validation_data, drifter=RandomDrifter(**drifter_options),
             #                                                           batch_size=len(self.validation_data.indices))
+        # optim = optimisers[optimiser]
+        self.optimizer = models[selected_model].optimiser(self.model.parameters(), **models[selected_model].optimiser_parameters)
 
-        self.optimizer = optimizer(self.model.parameters(), lr=learning_rate)
         self.error_counter = 0
         self.last_comm_time = 0
         self.last_whole_training_time = 0
@@ -99,7 +108,7 @@ class TrainingSuite:
         self.dataset = dataset
         self.training_data, self.validation_data = torch.utils.data.random_split(self.dataset, [0.9, 0.1])
         self.training_data_loader = DriftDatasetLoader(self.training_data, drifter=drifter_function, start_epoch=start_epoch,
-                                                       batch_size=len(self.training_data.indices))
+                                                       batch_size=len(self.training_data.indices) if models[self.selected_model].batch_size == 0 else models[self.selected_model].batch_size)
         self.validation_data_loader = DriftDatasetLoader(self.validation_data, drifter=drifter_function, start_epoch=start_epoch,
                                                          batch_size=len(self.validation_data.indices))
         # self.validation_data = validation_data
@@ -123,9 +132,12 @@ class TrainingSuite:
         # X, y = self.training_data_loader[0]
         # print(X.shape, y.shape)
         losses = []
+        i = 0
         for X, y in iter(self.training_data_loader):
-            output: Tensor = self.model(X)
+            self.log("Run ", i)
 
+            i += 1
+            output: Tensor = self.model(X.reshape(-1, 1, 28, 28))
             if output.isnan().any() or output.isinf().any():
                 self.log("NaN/Inf values detected. Reseting local NN")
 
@@ -234,6 +246,9 @@ def run_client(client_id, thread_runner):
         drifter_function = partial(add_noise, **thread_runner.runner_settings.drifter_options)
         # drifted_data = DataInputDataset(MNISTDataInputStream(*get_test_training_data(client_id, thread_runner.clients)), drift_transformation=drifter_function)
 
+    elif thread_runner.runner_settings.drift_type == "half_clients_drift" and client_id % 2 == 0:
+        drifter_function = partial(add_noise, **thread_runner.runner_settings.drifter_options)
+
     elif thread_runner.runner_settings.drift_type == "swap_domain":
         domain_id = client_id + 1
         if len(thread_runner.runner_settings.labels_filter) >= domain_id:
@@ -251,7 +266,7 @@ def run_client(client_id, thread_runner):
 
     # exit(0)mnist_input
     # print(mnist_input.data.train_data.shape)
-    with TrainingSuite(client_id, learning_rate=thread_runner.client_learning_rate,
+    with TrainingSuite(client_id, optimiser=thread_runner.runner_settings.optimiser, server_opt_options= thread_runner.runner_settings.server_optimiser_options, learning_rate=thread_runner.client_learning_rate,
                        folder=thread_runner.folder, load_save_data_directory=thread_runner.runner_settings.client_load_directory, load_only=thread_runner.runner_settings.load_only, reset_nn=thread_runner.runner_settings.reset_nn, selected_model=thread_runner.runner_settings.selected_model) as t:
         t.set_dataset(mnist_input, drifter_function)
         list_of_last_results = []
@@ -276,11 +291,16 @@ def run_client(client_id, thread_runner):
             try:
                 if thread_runner.runner_settings.mode == "train":
                     loss = t.train_round(thread_runner.sync_mode)
-                    thread_runner.client_response(client_id, {"loss": loss})
+                    if thread_runner.runner_settings.absolute_target and loss < thread_runner.runner_settings.target_loss:
+                        print("We are finished!")
+                        break
+                    else:
+                        thread_runner.client_response(client_id, {"loss": loss})
 
                 if thread_runner.runner_settings.mode == "test":
                     t.test_nn()
                     sleep(3)
+                    break
                     # if t.test_nn() < 0.3:
                     #     r = random.randint(0, len(mnist_input.data.test_data))
                     #     print("Prediction", t.predict(mnist_input.data.test_data[r]), mnist_input.data.test_labels[r])
@@ -384,7 +404,8 @@ def run_client(client_id, thread_runner):
             except KeyboardInterrupt:
                 break
 
-            except Exception:
-              pass
+            except Exception as e:
+                raise e
+                pass
 
         t.log("Stopping client")

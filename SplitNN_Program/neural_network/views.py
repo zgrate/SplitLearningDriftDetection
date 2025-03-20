@@ -282,7 +282,7 @@ def prepare_running(request):
     clients_amount = options['clients']
     current_client = 0
     print(options)
-    if options['server_load_save_data'] and not options['reset_nn']:
+    if options['server_load_save_data'] and not options['reset_nn'] and os.path.exists(os.path.join(options['server_load_save_data'], "server.pt")):
         print("Loading server file", os.path.join(options['server_load_save_data'], "server.pt"), "Created on", os.path.getctime(os.path.join(options['server_load_save_data'], "server.pt")))
         global_server_model.load(os.path.join(options['server_load_save_data'], "server.pt"))
         global_server_model.model.eval()
@@ -291,7 +291,7 @@ def prepare_running(request):
         global_server_model.reset_local_nn(options["selected_model"])
 
 
-    global_server_model.reinit_optimiser(**options['server_optimiser_options'])
+    global_server_model.reinit_optimiser(options["selected_model"])
 
     return Response(options)
 

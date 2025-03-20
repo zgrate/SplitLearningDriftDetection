@@ -7,7 +7,7 @@ from torch import nn, Tensor, optim
 
 from data_logger.models import TrainingLog
 from drift_detection.drift_detectors import DriftDetectionSuite, SimpleAverageDriftDetection
-from neural_network.nn_models import ClientServerModel0, ClientServerModel1, ClientServerModel2, ClientServerModel3
+from neural_network.nn_models import ClientServerModel0, ClientServerModel1, ClientServerModel2, ClientServerModel3, CNNClientServerModel1, CNNClientServerModel2
 
 # Create your models here.
 
@@ -16,9 +16,14 @@ server_models = {
     1: ClientServerModel1,
     2: ClientServerModel2,
     3: ClientServerModel3,
-
+    4: CNNClientServerModel1,
+    5: CNNClientServerModel2
 }
 
+optimisers = {
+    "sgd": torch.optim.SGD,
+    "adamw": torch.optim.AdamW
+}
 
 class ServerModelWrapper(nn.Module):
     def __init__(self, model_number=1):
@@ -54,7 +59,7 @@ class ServerModel:
             self.model.reset_nn()
 
         self.optimizer = None
-        self.reinit_optimiser(lr=0.01)
+        self.reinit_optimiser(model_number=1)
         self.criterion = nn.CrossEntropyLoss()
         self.error_counter = 0
         self.options = None
@@ -72,6 +77,7 @@ class ServerModel:
         TrainingLog(mode="reset", server_epoch=self.epoch).save()
         self.epoch = 0
         self.model = ServerModelWrapper(model_number)
+        self.reinit_optimiser(model_number=model_number)
         self.model.reset_nn()
 
 
@@ -79,9 +85,9 @@ class ServerModel:
         self.optimizer.step()
         self.optimizer.zero_grad()
 
-    def reinit_optimiser(self, **options):
-        print(options)
-        self.optimizer = optim.SGD(self.model.parameters(), **options)
+    def reinit_optimiser(self, model_number):
+
+        self.optimizer = server_models[model_number].optimiser(self.model.parameters(), **server_models[model_number].optimiser_parameters)
         print(self.optimizer)
 
     def train_input(self, input_list: list, input_labels: list, depth=0):
