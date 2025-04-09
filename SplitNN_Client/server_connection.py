@@ -1,3 +1,6 @@
+import os
+import time
+
 import requests
 import torch
 from torch import Tensor
@@ -11,6 +14,7 @@ REPORT_NN_RESET = "/report_client_nn_reset/"
 PREPARE_API = "/prepare_running/"
 CURRENT_CLIENT_API = "/current_client/"
 SAVE_REPORT_API = "/save_reports/"
+CLIENT_CHECK_API = "/client_check/"
 
 
 class ServerConnection:
@@ -32,15 +36,49 @@ class ServerConnection:
         try:
             return self.session.post(url=IP_ADDRESS + url, json=data)
         except ValueError:
-            print("ERROR", torch.tensor(data['output']).isnan().any(), torch.tensor(data['output']).isinf().any())
+            # print("ERROR", torch.tensor(data['output']).isnan().any(), torch.tensor(data['output']).isinf().any())
             return None
 
+    def check_request(self, request_id):
+        response = self.post(CLIENT_CHECK_API, {
+            "client_id": str(self.client_token),
+            "request_id": str(request_id)
+        })
+        print(response.status_code)
+        if response.status_code == 204:
+            return False
+        elif response.status_code == 200:
+            return response.json()
+
+        return None
+
+
     def train_request(self, intermid_output: Tensor, labels: Tensor, local_epoch: int = 0, last_comm_time: float = 0,
-                      last_whole_training_time=0):
+                      last_whole_training_time=0, gpu_runner=False, retry=120):
         response = self.post(TRAIN_API,
                              {"output": intermid_output.tolist(), "labels": labels.tolist(), "local_epoch": local_epoch,
                               "client_id": str(self.client_token), "last_comm_time": last_comm_time,
                               "last_whole_training_time": last_whole_training_time})
+
+        if gpu_runner:
+            if response.status_code == 200:
+                requst_id = response.json()['request_id']
+                print("Going into waiting loop...")
+                while retry > 0:
+                    response = self.check_request(requst_id)
+                    if response is None:
+                        return None
+
+                    elif response == False:
+                        retry -= 1
+                    else:
+                        return response
+                    if retry % 10 == 0:
+                        print(f"Retrying {retry} times")
+
+                    time.sleep(0.5)
+
+                return None
         if response.status_code == 200:
             return response.json()
 

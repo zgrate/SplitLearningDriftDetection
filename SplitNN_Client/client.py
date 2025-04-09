@@ -122,7 +122,7 @@ class TrainingSuite:
         self.model.reset_nn()
         self.epoch = 0
 
-    def train_round(self, synchronizer, depth=False):
+    def train_round(self, synchronizer, gpu_runner, depth=False):
         if synchronizer:
             while self.server.current_client() != self.client_id:
                 sleep(0.5)
@@ -146,7 +146,7 @@ class TrainingSuite:
             # print(data, output)
             comms_start_time = datetime.now()
             response = self.server.train_request(output, y, self.epoch, self.last_comm_time,
-                                                 self.last_whole_training_time)
+                                                 self.last_whole_training_time, gpu_runner=gpu_runner)
 
             self.last_comm_time = (datetime.now() - comms_start_time).total_seconds()
             losses.append(response['loss'])
@@ -290,7 +290,7 @@ def run_client(client_id, thread_runner):
         while not thread_runner.get_global_stop():
             try:
                 if thread_runner.runner_settings.mode == "train":
-                    loss = t.train_round(thread_runner.sync_mode)
+                    loss = t.train_round(thread_runner.sync_mode, thread_runner.runner_settings.run_multithread)
                     if thread_runner.runner_settings.absolute_target and loss < thread_runner.runner_settings.target_loss:
                         print("We are finished!")
                         break
@@ -334,7 +334,7 @@ def run_client(client_id, thread_runner):
 
                     if mode == "train":
                         t.log("Training round")
-                        loss = t.train_round(False)
+                        loss = t.train_round(False, thread_runner.runner_settings.run_multithread)
                         train_iterations_in_client += 1
 
                         if loss <= thread_runner.runner_settings.target_loss or (loss <= target_loss and train_iterations_in_client >= max_train_iterations):

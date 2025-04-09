@@ -9,7 +9,7 @@ https://docs.djangoproject.com/en/5.1/topics/settings/
 For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.1/ref/settings/
 """
-
+import os
 from pathlib import Path
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -26,7 +26,7 @@ SECRET_KEY = "django-insecure-mgtezois2#521cywh(t=a2!e82e)ylcw!z5r4)&^7n_ikj(yqe
 DEBUG = True
 
 ALLOWED_HOSTS = []
-
+os.makedirs("/var/splitnn/server", exist_ok=True)
 
 # Application definition
 
@@ -76,17 +76,13 @@ WSGI_APPLICATION = "SplitNN_Program.wsgi.application"
 # https://docs.djangoproject.com/en/5.1/ref/settings/#databases
 
 DATABASES = {
-    # "default": {
-    #     "ENGINE": "django.db.backends.sqlite3",
-    #     "NAME": BASE_DIR / "db.sqlite3",
-    # },
     'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': "postgres",
-        'USER': 'postgres',
-        'PASSWORD': 'protogen123',
-        'HOST': 'localhost',
-        'PORT': 5432,
+        'ENGINE': os.getenv('DB_ENGINE', 'django.db.backends.postgresql'),
+        'NAME': os.getenv('DB_NAME', 'postgres'),
+        'USER': os.getenv('DB_USER', 'postgres'),
+        'PASSWORD': os.getenv('DB_PASSWORD', 'protogen123'),
+        'HOST': os.getenv('DB_HOST', 'localhost'),
+        'PORT': int(os.getenv('DB_PORT', 5432)),
     }
 }
 

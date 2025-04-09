@@ -77,8 +77,10 @@ class ServerModel:
         os.makedirs(target_file, exist_ok=True)
         torch.save(global_server_model.model.state_dict(), os.path.join(target_file, "server.pt"))
 
-    def reset_local_nn(self, model_number=1):
+    def reset_local_nn(self, model_number=1, force_cpu=False):
         TrainingLog(mode="reset", server_epoch=self.epoch).save()
+        self.device = torch.device("cpu" if force_cpu or not torch.cuda.is_available() else "cuda")
+
         self.epoch = 0
         self.model = ServerModelWrapper(model_number)
         self.model.model.to(self.device)
@@ -99,8 +101,6 @@ class ServerModel:
         self.model.train()
 
         input_data = torch.tensor(input_list, requires_grad=True, pin_memory=True, device=self.device)
-
-        print(input_data.shape)
 
         labels = torch.tensor(input_labels, pin_memory=True, device=self.device).long()
 

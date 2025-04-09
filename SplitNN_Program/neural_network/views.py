@@ -3,12 +3,16 @@ import json
 import os
 import threading
 import shutil
+import uuid
+from dataclasses import dataclass
+import traceback
 
 import torch
 from django.db import transaction
 from django.db.models import StdDev, Avg, Min, Max, Sum
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
+from rest_framework.status import HTTP_204_NO_CONTENT, HTTP_409_CONFLICT, HTTP_200_OK
 
 from data_logger.models import DataTransferLog, TrainingLog, DriftingLogger, PredictionLog
 from drift_detection.drift_detectors import SimpleAverageDriftDetection, check_average_drift_of_client
@@ -52,6 +56,67 @@ drifting_suits = [
     SimpleAverageDriftDetection()
 ]
 
+requests_queue = []
+
+requests_finished = {}
+
+running = False
+global_thread = None
+
+def training_loop():
+    global requests_queue
+    global requests_finished
+    print("LOOP Thread Started!")
+    while running:
+        if not running:
+            break
+        try:
+            if len(requests_queue) > 0:
+                request = requests_queue.pop(0)
+                print("Processing request", request.request_id, "from", request.client_id)
+                with transaction.atomic():
+                    with lock:
+                        return_data, loss = global_server_model.train_input(request.gradients, request.labels)
+                        report_training(loss, request.client_id, request.local_epoch, global_server_model.epoch, 0, 0, 0)
+                        request.process_time = datetime.datetime.now()
+                        request.response_gradients = return_data
+                        request.response_loss = loss
+                        requests_finished[request.request_id] = request
+                        print("Request", request.request_id, "finished")
+        except Exception:
+            print(traceback.format_exc())
+
+
+
+
+@dataclass
+class ClientData:
+    request_id: str
+    client_id: str
+    timestamp: datetime.datetime
+    gradients: list
+    labels: list
+    local_epoch: int
+
+
+    process_time: datetime.datetime | None
+    response_gradients: list | None
+    response_loss: float | None
+
+@api_view(["POST"])
+def check_response(request):
+    global requests_finished
+    client_id = request.data["client_id"]
+    request_id = request.data['request_id']
+    print("Checking if the client is available", request_id, requests_finished.keys(), client_id)
+    completed = requests_finished.pop(request_id, None)
+
+    if completed is not None:
+        print("RESPONSE_Returned!", completed.client_id, completed.request_id)
+        print(len({"gradients": completed.response_gradients, "loss": completed.response_loss}))
+        return Response(status=HTTP_200_OK, data = {"gradients": completed.response_gradients, "loss": completed.response_loss})
+    else:
+        return Response(status=HTTP_204_NO_CONTENT)
 
 
 @api_view(["POST"])
@@ -64,30 +129,52 @@ def train(request):
     data_amount = sys.getsizeof(request.data)
 
     training_time = datetime.datetime.now()
-    with transaction.atomic():
 
-        with lock:
-            return_data, loss = global_server_model.train_input(request.data['output'], request.data['labels'])
-            time_length = (datetime.datetime.now() - training_time).total_seconds()
+    if global_server_model.options.get("run_multithread", False):
+        client_train_request = ClientData(
+            client_id=client_id,
+            request_id=uuid.uuid4().hex,
+            timestamp=datetime.datetime.now(),
+            gradients=request.data['output'],
+            labels=request.data['labels'],
+            local_epoch=local_epoch,
+            process_time=None,
+            response_gradients=None,
+            response_loss=None
 
-            data = {"gradients": return_data, "loss": loss}
+        )
 
-            # if return_data.isnan().any() or return_data.isinf().any():
-            #     print("THIS SHOULD NOT BE ERROR!")
-            #     return Response({})
-            report_training(loss, client_id, local_epoch, global_server_model.epoch, time_length, last_communication_time,
-                            last_whole_training_time)
+        requests_queue.append(client_train_request)
+        print("Queued client to the queue", client_id, client_train_request.request_id, len(requests_queue))
 
-            report_usage("train", data_amount, client_id, direction_to_server=True)
-            report_usage("train", sys.getsizeof(data), client_id, direction_to_server=False)
+        return Response({"request_id": client_train_request.request_id})
 
-            global current_client
 
-            current_client += 1
-            if current_client >= clients_amount:
-                current_client = 0
+    else:
+        with transaction.atomic():
 
-        return Response(data)
+            with lock:
+                return_data, loss = global_server_model.train_input(request.data['output'], request.data['labels'])
+                time_length = (datetime.datetime.now() - training_time).total_seconds()
+
+                data = {"gradients": return_data, "loss": loss}
+
+                # if return_data.isnan().any() or return_data.isinf().any():
+                #     print("THIS SHOULD NOT BE ERROR!")
+                #     return Response({})
+                report_training(loss, client_id, local_epoch, global_server_model.epoch, time_length, last_communication_time,
+                                last_whole_training_time)
+
+                report_usage("train", data_amount, client_id, direction_to_server=True)
+                report_usage("train", sys.getsizeof(data), client_id, direction_to_server=False)
+
+                global current_client
+
+                current_client += 1
+                if current_client >= clients_amount:
+                    current_client = 0
+
+            return Response(data)
 
 
 @api_view(["POST"])
@@ -164,7 +251,7 @@ def save_reports(request):
     details = request.data.get("details", {})
 
     if global_server_model.options['server_load_save_data'] and not global_server_model.options['load_only']:
-        global_server_model.save(global_server_model.options['server_load_save_data'])
+        global_server_model.save(os.path.join("/var/splitnn/server_models", global_server_model.options['server_load_save_data']))
 
     qs = TrainingLog.objects.all().order_by('created_at')
     details["logs_timer"] = (qs.last().created_at - qs.first().created_at).total_seconds()
@@ -193,14 +280,14 @@ def save_reports(request):
     details['results'] = {**results, **results_network}
 
 
-    folder = datetime.datetime.now().strftime("serverlogs/serverlogs-%Y%m%d%H%M%S")
-    os.mkdir(folder)
+    folder = os.path.join("/var/splitnn/serverlogs", datetime.datetime.now().strftime("serverlogs-%Y%m%d%H%M%S"))
+    os.makedirs(folder)
 
     def j(file):
         return os.path.join(folder, file)
 
-    db_file = "db.sqlite3"
-    shutil.copy(os.path.abspath(db_file), j("db.sqlite3"))
+    # db_file = "db.sqlite3"
+    # shutil.copy(os.path.abspath(db_file), j("db.sqlite3"))
     classes = [TrainingLog, DataTransferLog, PredictionLog, DriftingLogger]
 
     for cls in classes:
@@ -249,6 +336,14 @@ def save_reports(request):
 
 @api_view(['POST'])
 def prepare_running(request):
+    global global_thread
+    global running
+
+    running = False
+    if global_thread is not None:
+        global_thread.join()
+        global_thread = None
+
     # print("CO JEST??")
     global clients_amount, current_client
     options = request.data
@@ -277,14 +372,14 @@ def prepare_running(request):
         PredictionLog.objects.all().delete()
 
     if global_server_model.options['selected_model'] != global_server_model.model.model_number:
-        global_server_model.reset_local_nn(options['selected_model'])
+        global_server_model.reset_local_nn(options['selected_model'], options['force_cpu'])
 
     clients_amount = options['clients']
     current_client = 0
     print(options)
-    if options['server_load_save_data'] and not options['reset_nn'] and os.path.exists(os.path.join(options['server_load_save_data'], "server.pt")):
-        print("Loading server file", os.path.join(options['server_load_save_data'], "server.pt"), "Created on", os.path.getctime(os.path.join(options['server_load_save_data'], "server.pt")))
-        global_server_model.load(os.path.join(options['server_load_save_data'], "server.pt"))
+    if options['server_load_save_data'] and not options['reset_nn'] and os.path.exists(os.path.join("/var/splitnn/server_models", options['server_load_save_data'], "server.pt")):
+        print("Loading server file", os.path.join("/var/splitnn/server_models",options['server_load_save_data'], "server.pt"), "Created on", os.path.getctime(os.path.join(options['server_load_save_data'], "server.pt")))
+        global_server_model.load(os.path.join("/var/splitnn/server_models", options['server_load_save_data'], "server.pt"))
         global_server_model.model.eval()
     else:
         print("Resetting server NN")
@@ -292,6 +387,13 @@ def prepare_running(request):
 
 
     global_server_model.reinit_optimiser(options["selected_model"])
+
+
+    if options['run_multithread']:
+        print("Starting thread...")
+        global_thread = threading.Thread(target=training_loop)
+        global_thread.start()
+        running = True
 
     return Response(options)
 

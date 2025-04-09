@@ -27,7 +27,7 @@ class RunnerArguments:
     #Number of Clients
     clients: int = 5
     #Run Mode
-    mode: Literal["train", "predict_random", "normal_runner"] = "train"
+    mode: Literal["train", "predict_random", "normal_runner", "gpu_runner"] = "train"
     #selected model
     selected_model: int = 1
 
@@ -59,6 +59,12 @@ class RunnerArguments:
 
     #should we wait for all clients to converge to target loss, or only one
     all_client_loss: bool = True
+
+    # Run multithreading option
+    run_multithread: bool = False
+
+    #Force CPU usage
+    force_cpu: bool = False
 
 
     #Data loading options
@@ -117,6 +123,9 @@ class RunnerArguments:
             new_dict = {**new_dict, **d}
         return RunnerArguments(**new_dict)
 
+os.makedirs("/var/splitnn/logs", exist_ok=True)
+
+
 
 class SplitLearningRunner:
 
@@ -126,7 +135,7 @@ class SplitLearningRunner:
         self.client_epochs_limit = runner_settings.client_epoch_limit
         self.seconds_running = runner_settings.second_running
         self.sync_mode = runner_settings.sync_mode
-        self.folder = datetime.now().strftime("%Y%m%d%H%M%s")
+        self.folder = os.path.join("/var/splitnn/logs", datetime.now().strftime("%Y%m%d%H%M%s"))
         self.server_connection = ServerConnection("runner")
         self.target_loss = runner_settings.target_loss
         self.all_clients_loss = runner_settings.all_client_loss
@@ -207,13 +216,13 @@ class SplitLearningRunner:
             print("KURWA")
 
 
-        self.collect_everything(data_res['server_data_folder'], self.runner_settings)
+        # self.collect_everything(data_res['server_data_folder'], self.runner_settings)
         # while any(t.is_alive() for t in threads):
         #     sleep(1)
 
     def collect_everything(self, server, runner_settings):
         folder = datetime.now().strftime(f"{runner_settings.collected_folder_name}_%Y_%m_%d_%H_%M_%S")
-        folder = "collected_runtime/"+get_valid_filename(folder)
+        folder = "/var/splitnn/logs/collected_runtime/"+get_valid_filename(folder)
 
         os.makedirs(folder, exist_ok=True)
 
@@ -223,7 +232,7 @@ class SplitLearningRunner:
         shutil.copytree(self.folder, os.path.join(folder, "client_data"))
 
         if self.runner_settings.server_load_save_data:
-            j = os.path.join(r"/home/zgrate/mastersapp/SplitNN_Program", self.runner_settings.server_load_save_data)
+            j = os.path.join(r"/var/splitnn/models", self.runner_settings.server_load_save_data)
             if os.path.exists(j):
                 shutil.copytree(j, os.path.join(folder, "server_saved_model"))
             else:
@@ -240,9 +249,111 @@ class SplitLearningRunner:
     def get_global_stop(self):
         return self.global_stop
 
+class DockerSplitLearningRunner(SplitLearningRunner):
+
+    def __init__(self, runner_settings: RunnerArguments, client_index: int, client_numbers: int, dataset_type: str):
+        super().__init__(runner_settings)
+        self.client_index = client_index
+        self.client_numbers = client_numbers
+        self.dataset_type = dataset_type
+
+
+    def start_runner(self):
+
+        # sleep(5)
+        if self.client_index == 0:
+            print("Starting runner in 5 seconds")
+
+        self.server_connection.prepare_runner(self.runner_settings.__dict__)
+
+        os.mkdir(self.folder)
+
+        threads = []
+
+        for i in range(self.runner_settings.clients):
+            print("Starting Client", i)
+            t = threading.Thread(target=run_client, args=[i, self])
+            threads.append(t)
+            t.start()
+            sleep(0.5)
+
+        def handler(signum, frame):
+            print(signum)
+            self.global_stop = True
+
+        signal.signal(signal.SIGINT, handler)
+
+        seconds_counter = 0
+        while not self.global_stop:
+            try:
+                sleep(1)
+                if all([not x.is_alive() for x in threads]):
+                    print("All threads are done. Finishing the system")
+                    self.global_stop = True
+
+                if self.seconds_running > 0:
+                    seconds_counter += 1
+                    if seconds_counter % 15 == 0:
+                        print("Passed", seconds_counter)
+                    if seconds_counter >= self.seconds_running:
+                        self.global_stop = True
+                        print("STOP COUNTER REACHED TARGET TIME!!")
+
+            except KeyboardInterrupt:
+                print("STOP!")
+                self.global_stop = True
+
+
+        print("Stopping runners")
+
+        sample_client = TrainingSuite(-1)
+
+        if not (data_res := self.server_connection.save_report({
+            "all_runner_options": self.runner_settings.__dict__,
+            "client_model": str(sample_client.model.model),
+            "client_optimizer": str(sample_client.optimizer),
+            "clients": self.runner_settings.clients,
+            "sync_mode": self.sync_mode,
+            "seconds_running": self.seconds_running,
+            "client_folder": self.folder,
+            "target_loss": self.target_loss,
+            "client_learning_rate": self.client_learning_rate,
+        })):
+            print("KURWA")
+
 
 if __name__ == "__main__":
+    #Docker mode
     if True:
+        runner_file = os.environ.get("RUNNER_FILE", "/var/splitnn/runner_settings.json")
+        dataset_type = os.environ.get("DATASET_TYPE", "mnist")
+        client_index = int(os.environ.get("CLIENT_INDEX", "0"))
+        client_numbers = int(os.environ.get("CLIENT_NUMBERS", "1"))
+        repeat_training = int(os.environ.get("REPEAT_TRAINING", "1"))
+        reset_training = bool(os.environ.get("RESET_TRAINING", False))
+
+
+        with open(runner_file) as f:
+            runner = json.load(f)
+
+        setting = RunnerArguments(**runner)
+
+        i = 0
+        while repeat_training == 0 or i < repeat_training:
+            i += 1
+            print("Running", setting, setting.description)
+            try:
+                DockerSplitLearningRunner(setting, client_index, client_numbers, dataset_type).start_runner()
+            except Exception as e:
+                print("Error running file! Reporting errorr")
+                with open("errors_file", "a") as f:
+                    f.write(str(e) + "\n")
+                    json.dump(setting.__dict__, f)
+
+            sleep(5)
+
+
+    if False:
         default = RunnerArguments(server_optimiser_options={"lr": 0.001}, drifter_options={}, drifting_clients=[])
 
         # default = {
@@ -551,7 +662,7 @@ if __name__ == "__main__":
         #
 
         #All Training
-        settings = [default.construct_runner({"description": str(x)}, training_settings, zero_training, get_model_variant(*x)) for x in model_variants]
+        settings = [default.construct_runner({"description": str(x), "force_cpu": True, "run_multithread": True}, training_settings, zero_training, get_model_variant(*x)) for x in model_variants]
 
         #settings = settings + [default.construct_runner({"description": str(x)}, debug_test_settings, get_model_variant(*x)) for x in model_variants]
         # print(len(settings), settings)
