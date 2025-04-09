@@ -33,13 +33,14 @@ class ServerModelWrapper(nn.Module):
         self.model = server_models[model_number].server()
 
     def reset_nn(self):
-        def init_normal(module):
-            if "weight" in module.__dir__():
-                nn.init.normal_(module.weight)
-            if "bias" in module.__dir__():
-                nn.init.normal_(module.bias)
-
-        self.model.apply(init_normal)
+        pass
+    #     def init_normal(module):
+    #         if "weight" in module.__dir__():
+    #             nn.init.normal_(module.weight)
+    #         if "bias" in module.__dir__():
+    #             nn.init.normal_(module.bias)
+    #
+    #     self.model.apply(init_normal)
 
     def forward(self, x):
         return self.model(x)
@@ -50,6 +51,9 @@ class ServerModel:
     def __init__(self, input_dict=None, drift_detection_suite=DriftDetectionSuite(SimpleAverageDriftDetection(filter_mode="test", client_only_mode=True))):
         self.model = ServerModelWrapper()
         self.drift_detection_suite = drift_detection_suite
+
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.model.model.to(self.device)
 
         self.epoch = 0
         if input_dict is not None:
@@ -77,6 +81,7 @@ class ServerModel:
         TrainingLog(mode="reset", server_epoch=self.epoch).save()
         self.epoch = 0
         self.model = ServerModelWrapper(model_number)
+        self.model.model.to(self.device)
         self.reinit_optimiser(model_number=model_number)
         self.model.reset_nn()
 
@@ -92,17 +97,19 @@ class ServerModel:
 
     def train_input(self, input_list: list, input_labels: list, depth=0):
         self.model.train()
-        input_data = torch.tensor(input_list, requires_grad=True)
+
+        input_data = torch.tensor(input_list, requires_grad=True, pin_memory=True, device=self.device)
+
         print(input_data.shape)
 
-        labels = torch.tensor(input_labels).long()
+        labels = torch.tensor(input_labels, pin_memory=True, device=self.device).long()
 
         output = self.model(input_data)
 
         loss = self.criterion(output, labels)
         loss.backward()
 
-        gradients = input_data.grad.detach()
+        gradients = input_data.grad.detach().cpu()
         return_empty = False
         if gradients.isnan().any() or gradients.isinf().any():
             print("Reset of NN needed. Reseting system....  ")

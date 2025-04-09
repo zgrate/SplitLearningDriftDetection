@@ -192,7 +192,7 @@ class ClientServerModel3:
 
 class CNNClientServerModel1:
 
-    batch_size = 256
+    batch_size = 2048
     optimiser = AdamW
     optimiser_parameters = {"lr": 0.001}
 

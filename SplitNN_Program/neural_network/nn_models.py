@@ -269,3 +269,67 @@ class CNNClientServerModel2:
         nn.Linear(1024, 10),  # Output size is 10 (e.g., for classification with 10 classes)
         nn.Softmax(dim=1)
     )
+
+
+class VGG16ClientServerModel1:
+    batch_size = 32
+    optimiser = AdamW
+    optimiser_parameters = {"lr": 0.001}
+
+    client = lambda : nn.Sequential(
+            # Block 1
+            nn.Conv2d(3, 64, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(64, 64, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(kernel_size=2, stride=2),
+
+            # Block 2
+            nn.Conv2d(64, 128, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(128, 128, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(kernel_size=2, stride=2),
+
+            # Block 3
+            nn.Conv2d(128, 256, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(256, 256, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(256, 256, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(kernel_size=2, stride=2),
+
+        )
+
+    server = lambda: nn.Sequential(
+        # Block 4
+        nn.Conv2d(256, 512, kernel_size=3, padding=1),
+        nn.ReLU(inplace=True),
+        nn.Conv2d(512, 512, kernel_size=3, padding=1),
+        nn.ReLU(inplace=True),
+        nn.Conv2d(512, 512, kernel_size=3, padding=1),
+        nn.ReLU(inplace=True),
+        nn.MaxPool2d(kernel_size=2, stride=2),
+
+        # Block 5
+        nn.Conv2d(512, 512, kernel_size=3, padding=1),
+        nn.ReLU(inplace=True),
+        nn.Conv2d(512, 512, kernel_size=3, padding=1),
+        nn.ReLU(inplace=True),
+        nn.Conv2d(512, 512, kernel_size=3, padding=1),
+        nn.ReLU(inplace=True),
+        nn.MaxPool2d(kernel_size=2, stride=2),
+
+        nn.Flatten(),
+
+        # Classifier
+        nn.Linear(512 * 7 * 7, 4096),
+        nn.ReLU(inplace=True),
+        nn.Dropout(),
+        nn.Linear(4096, 4096),
+        nn.ReLU(inplace=True),
+        nn.Dropout(),
+        nn.Linear(4096, 10),
+        nn.Softmax(dim=1)
+    )
