@@ -259,52 +259,9 @@ class DockerSplitLearningRunner(SplitLearningRunner):
 
 
     def start_runner(self):
-
-        # sleep(5)
-        if self.client_index == 0:
-            print("Starting runner in 5 seconds")
-
-        self.server_connection.prepare_runner(self.runner_settings.__dict__)
-
         os.mkdir(self.folder)
 
-        threads = []
-
-        for i in range(self.runner_settings.clients):
-            print("Starting Client", i)
-            t = threading.Thread(target=run_client, args=[i, self])
-            threads.append(t)
-            t.start()
-            sleep(0.5)
-
-        def handler(signum, frame):
-            print(signum)
-            self.global_stop = True
-
-        signal.signal(signal.SIGINT, handler)
-
-        seconds_counter = 0
-        while not self.global_stop:
-            try:
-                sleep(1)
-                if all([not x.is_alive() for x in threads]):
-                    print("All threads are done. Finishing the system")
-                    self.global_stop = True
-
-                if self.seconds_running > 0:
-                    seconds_counter += 1
-                    if seconds_counter % 15 == 0:
-                        print("Passed", seconds_counter)
-                    if seconds_counter >= self.seconds_running:
-                        self.global_stop = True
-                        print("STOP COUNTER REACHED TARGET TIME!!")
-
-            except KeyboardInterrupt:
-                print("STOP!")
-                self.global_stop = True
-
-
-        print("Stopping runners")
+        run_client(self.client_index, self)
 
         sample_client = TrainingSuite(-1)
 
@@ -319,7 +276,7 @@ class DockerSplitLearningRunner(SplitLearningRunner):
             "target_loss": self.target_loss,
             "client_learning_rate": self.client_learning_rate,
         })):
-            print("KURWA")
+            print("fuck")
 
 
 if __name__ == "__main__":
@@ -328,9 +285,10 @@ if __name__ == "__main__":
         runner_file = os.environ.get("RUNNER_FILE", "/var/splitnn/runner_settings.json")
         dataset_type = os.environ.get("DATASET_TYPE", "mnist")
         client_index = int(os.environ.get("CLIENT_INDEX", "0"))
-        client_numbers = int(os.environ.get("CLIENT_NUMBERS", "1"))
+        # client_numbers = int(os.environ.get("CLIENT_NUMBERS", "1"))
         repeat_training = int(os.environ.get("REPEAT_TRAINING", "1"))
-        reset_training = bool(os.environ.get("RESET_TRAINING", False))
+
+        # reset_training = bool(os.environ.get("RESET_TRAINING", False))
 
 
         with open(runner_file) as f:
@@ -343,7 +301,7 @@ if __name__ == "__main__":
             i += 1
             print("Running", setting, setting.description)
             try:
-                DockerSplitLearningRunner(setting, client_index, client_numbers, dataset_type).start_runner()
+                DockerSplitLearningRunner(setting, client_index, dataset_type).start_runner()
             except Exception as e:
                 print("Error running file! Reporting errorr")
                 with open("errors_file", "a") as f:

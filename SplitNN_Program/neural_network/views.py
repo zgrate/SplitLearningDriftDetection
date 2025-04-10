@@ -333,9 +333,9 @@ def save_reports(request):
 
     return Response({"server_data_folder": os.path.abspath(folder)})
 
+def prepare_model_for_running(options):
+    global_server_model.options = options
 
-@api_view(['POST'])
-def prepare_running(request):
     global global_thread
     global running
 
@@ -346,9 +346,9 @@ def prepare_running(request):
 
     # print("CO JEST??")
     global clients_amount, current_client
-    options = request.data
+
     # print("test", options)
-    global_server_model.options = request.data
+
     # default = {
     #     "clients": 5,
     #     "sync_mode": False,
@@ -360,7 +360,7 @@ def prepare_running(request):
     #         "lr": 0.001,
     #     },
     #     "client_learning_rate": 0.001,
-#         "server_load_save_data": None,
+    #         "server_load_save_data": None,
     #     "client_load_directory": None,
     #     "reset_logs": True
     # }
@@ -377,17 +377,19 @@ def prepare_running(request):
     clients_amount = options['clients']
     current_client = 0
     print(options)
-    if options['server_load_save_data'] and not options['reset_nn'] and os.path.exists(os.path.join("/var/splitnn/server_models", options['server_load_save_data'], "server.pt")):
-        print("Loading server file", os.path.join("/var/splitnn/server_models",options['server_load_save_data'], "server.pt"), "Created on", os.path.getctime(os.path.join(options['server_load_save_data'], "server.pt")))
-        global_server_model.load(os.path.join("/var/splitnn/server_models", options['server_load_save_data'], "server.pt"))
+    if options['server_load_save_data'] and not options['reset_nn'] and os.path.exists(
+            os.path.join("/var/splitnn/server_models", options['server_load_save_data'], "server.pt")):
+        print("Loading server file",
+              os.path.join("/var/splitnn/server_models", options['server_load_save_data'], "server.pt"), "Created on",
+              os.path.getctime(os.path.join(options['server_load_save_data'], "server.pt")))
+        global_server_model.load(
+            os.path.join("/var/splitnn/server_models", options['server_load_save_data'], "server.pt"))
         global_server_model.model.eval()
     else:
         print("Resetting server NN")
         global_server_model.reset_local_nn(options["selected_model"])
 
-
     global_server_model.reinit_optimiser(options["selected_model"])
-
 
     if options['run_multithread']:
         print("Starting thread...")
@@ -395,9 +397,20 @@ def prepare_running(request):
         global_thread.start()
         running = True
 
+@api_view(['POST'])
+def prepare_running(request):
+    options = request.data
+    prepare_model_for_running(options)
+
+
     return Response(options)
 
 
 @api_view(['GET'])
 def current_client(request):
     return Response({"current_client": current_client})
+
+runner_file = os.environ.get("RUNNER_FILE", None)
+if runner_file is not None:
+    with open(runner_file, "r") as f:
+        prepare_model_for_running(json.load(f))

@@ -5,7 +5,7 @@ import requests
 import torch
 from torch import Tensor
 
-IP_ADDRESS = "http://localhost:8000"
+IP_ADDRESS = os.environ.get("SERVER_URL", "http://localhost:8000")
 TRAIN_API = "/train/"
 TEST_API = "/test/"
 PREDICT_API = "/predict/"
