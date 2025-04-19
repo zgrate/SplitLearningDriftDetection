@@ -1,0 +1,50 @@
+version: '3.8'
+
+services:
+  service1:
+    build:
+      context: .
+    env_file:
+      - .env
+    environment:
+      CLIENT_INDEX: 1
+
+  service2:
+    build:
+      context: .
+    env_file:
+      - .env
+    environment:
+      CLIENT_INDEX: 2
+
+  service3:
+    build:
+      context: .
+    env_file:
+      - .env
+    environment:
+      CLIENT_INDEX: 3
+
+  service4:
+    build:
+      context: .
+    env_file:
+      - .env
+    environment:
+      CLIENT_INDEX: 4
+
+  service5:
+    build:
+      context: .
+    env_file:
+      - .env
+    environment:
+      CLIENT_INDEX: 5
+
+  service6:
+    build:
+      context: .
+    env_file:
+      - .env
+    environment:
+      CLIENT_INDEX: 6

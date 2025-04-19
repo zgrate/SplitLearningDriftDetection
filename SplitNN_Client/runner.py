@@ -123,7 +123,7 @@ class RunnerArguments:
             new_dict = {**new_dict, **d}
         return RunnerArguments(**new_dict)
 
-os.makedirs("/var/splitnn/logs", exist_ok=True)
+
 
 
 
@@ -251,10 +251,9 @@ class SplitLearningRunner:
 
 class DockerSplitLearningRunner(SplitLearningRunner):
 
-    def __init__(self, runner_settings: RunnerArguments, client_index: int, client_numbers: int, dataset_type: str):
+    def __init__(self, runner_settings: RunnerArguments, client_index: int, dataset_type: str):
         super().__init__(runner_settings)
         self.client_index = client_index
-        self.client_numbers = client_numbers
         self.dataset_type = dataset_type
 
 
@@ -280,6 +279,7 @@ class DockerSplitLearningRunner(SplitLearningRunner):
 
 
 if __name__ == "__main__":
+    os.makedirs("/var/splitnn/logs", exist_ok=True)
     #Docker mode
     if True:
         runner_file = os.environ.get("RUNNER_FILE", "/var/splitnn/runner_settings.json")

@@ -11,7 +11,7 @@ WORKDIR /app
 
 # Copy the requirements file into the container
 COPY requirements.txt /app/
-RUN apt install
+
 # Install dependencies
 RUN pip install setuptools wheel && \
     pip install --upgrade pip && \
