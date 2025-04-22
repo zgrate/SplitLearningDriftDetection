@@ -24,6 +24,8 @@ class RunnerArguments:
 
     collected_folder_name: str = ""
 
+    dataset: Literal["mnist", "cifar10"] = "mnist"
+
     #Number of Clients
     clients: int = 5
     #Run Mode
@@ -43,7 +45,7 @@ class RunnerArguments:
     #Targets
 
     #Test run for max X seconds
-    second_running: int = 6000
+    second_running: int = 0
     #Max Epoch per client
     client_epoch_limit: int = 0
     # Target Loss of any function
@@ -318,8 +320,8 @@ if __name__ == "__main__":
             # (3, 16),
             # (3, 32)
 
-            (4, 4)
-
+            # (4, 4)
+            (6, 2)
 
         ]
 
@@ -416,7 +418,7 @@ if __name__ == "__main__":
             "load_only": False,
             'target_loss': 0.4,
             "mode": "train",
-            'second_running': 1800
+            # 'second_running': 1800
         }
 
         test_settings = {
@@ -551,7 +553,7 @@ if __name__ == "__main__":
         #
 
         #All Training
-        settings = [default.construct_runner({"description": str(x)}, training_settings, zero_training, get_model_variant(*x)) for x in model_variants]
+        settings = [default.construct_runner({"description": str(x), "dataset": "cifar10"}, training_settings, zero_training, get_model_variant(*x)) for x in model_variants]
 
         #settings = settings + [default.construct_runner({"description": str(x)}, debug_test_settings, get_model_variant(*x)) for x in model_variants]
         # print(len(settings), settings)

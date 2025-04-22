@@ -7,7 +7,8 @@ from torch import nn, Tensor, optim
 
 from data_logger.models import TrainingLog
 from drift_detection.drift_detectors import DriftDetectionSuite, SimpleAverageDriftDetection
-from neural_network.nn_models import ClientServerModel0, ClientServerModel1, ClientServerModel2, ClientServerModel3, CNNClientServerModel1, CNNClientServerModel2
+from neural_network.nn_models import ClientServerModel0, ClientServerModel1, ClientServerModel2, ClientServerModel3, \
+    CNNClientServerModel1, CNNClientServerModel2, CIDARRecommendedNetwork1
 
 # Create your models here.
 
@@ -17,7 +18,8 @@ server_models = {
     2: ClientServerModel2,
     3: ClientServerModel3,
     4: CNNClientServerModel1,
-    5: CNNClientServerModel2
+    5: CNNClientServerModel2,
+    6: CIDARRecommendedNetwork1
 }
 
 optimisers = {
@@ -52,7 +54,7 @@ class ServerModel:
         self.model = ServerModelWrapper()
         self.drift_detection_suite = drift_detection_suite
 
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = torch.device("cpu")
         self.model.model.to(self.device)
 
         self.epoch = 0

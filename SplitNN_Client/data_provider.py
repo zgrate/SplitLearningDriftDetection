@@ -10,9 +10,7 @@ from torch import Tensor
 from torch.utils.data import Dataset, DataLoader
 from torch.utils.data.dataloader import _BaseDataLoaderIter
 from torchvision import transforms
-from torchvision.datasets import MNIST
-
-
+from torchvision.datasets import MNIST, CIFAR10
 
 # def client_fn(context: Context):
 #     partition_id = int(context.node_config["partition-id"])
@@ -30,35 +28,31 @@ from torchvision.datasets import MNIST
 #     return FlowerClient(partition_id, mnist.data[start:end], mnist.targets[start:end], lr).to_client()
 
 
-def division_data(clients_number):
-    mnist = MNIST("mnists/", download=True)
-
-    return [get_test_training_data(i, clients_number, mnist) for i in range(clients_number)]
-
-
-def get_test_training_data(client_id, client_count, mnist=None, drift_transformation=None):
-    if mnist is None:
-        mnist = MNIST("mnists/", download=True)
+def division_data(clients_number, dataset):
+    from SplitNN_Client.client import target_dataset_details
+    dataset_input = target_dataset_details[dataset].get("dataset_input")()
+    return [get_test_training_data(i, clients_number, dataset_input) for i in range(clients_number)]
 
 
+def get_test_training_data(client_id, client_count, input_dataset, drift_transformation=None):
     # print(data)
 
-    le = len(mnist.train_data) / client_count
+    le = len(input_dataset.data) / client_count
 
     start = int(client_id * le)
     end = int((client_id + 1) * le)
 
 
-
-    part_data = mnist.train_data[start:end].float()/255
-    part_targets = mnist.train_labels[start:end].long()
+    part_data = torch.tensor(input_dataset.data[start:end]).float()/255
+    part_targets = torch.tensor(input_dataset.targets[start:end]).long()
 
     if drift_transformation is not None:
         part_data, part_targets = drift_transformation(part_data, part_targets) 
 
     return part_data, part_targets, [], []
 
-def get_separated_by_labels(filtered_labels, mnist=None):
+
+def get_mnist_separated_by_labels(filtered_labels, mnist=None):
     if mnist is None:
         mnist = MNIST("mnists/", download=True)
 
@@ -88,7 +82,8 @@ class AbstractDataInputStream:
         raise NotImplementedError()
 
 
-class MNISTDataInputStream(AbstractDataInputStream):
+
+class DividedDataInputStream(AbstractDataInputStream):
 
     def start_drifting(self):
         pass

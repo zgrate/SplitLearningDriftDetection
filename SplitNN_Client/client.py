@@ -11,12 +11,15 @@ from sympy.codegen import Print
 from torch import nn, Tensor
 from torch.utils.data import Subset
 
-from data_provider import AbstractDataInputStream, MNISTDataInputStream, get_test_training_data, \
-    DataInputDataset, DriftDatasetLoader, get_separated_by_labels
+from SplitNN_Client.data_provider import get_test_training_data
+from SplitNN_Client.nn_models import CIDARRecommendedNetwork1
+from data_provider import AbstractDataInputStream, DividedDataInputStream, \
+    DataInputDataset, DriftDatasetLoader, get_mnist_separated_by_labels
 from drifted_data_creator import add_noise, temporal_drift
 from drifting_simulation import RandomDrifter, AbstractDrifter
 from nn_models import ClientServerModel0, ClientServerModel1, ClientServerModel2, ClientServerModel3, CNNClientServerModel1, CNNClientServerModel2
 from server_connection import ServerConnection
+from torchvision.datasets import MNIST, CIFAR10
 
 
 models = {
@@ -25,9 +28,23 @@ models = {
     2: ClientServerModel2,
     3: ClientServerModel3,
     4: CNNClientServerModel1,
-    5: CNNClientServerModel2
+    5: CNNClientServerModel2,
+    6: CIDARRecommendedNetwork1
 }
 
+
+target_dataset_details = {
+    "mnist": {
+        "dataset_input": partial(MNIST, "./mnist", download=True),
+        "image_size": (28,28),
+        "image_resolution": 1
+    },
+    "cifar10": {
+        "dataset_input": partial(CIFAR10, "./cifar10", download=True),
+        "image_size": (32,32),
+        "image_resolution": 3
+    }
+}
 
 
 class ClientModel(nn.Module):
@@ -71,7 +88,7 @@ class TrainingSuite:
             self.logger_file.flush()
 
     def __init__(self, client_id, optimiser="sgd", server_opt_options=dict(),
-                 learning_rate=0.001, folder: str = "folder", load_save_data_directory: str = None, load_only=False, reset_nn=True, selected_model=1):
+                 learning_rate=0.001, folder: str = "folder", load_save_data_directory: str = None, load_only=False, reset_nn=True, selected_model=1, runner_settings=None):
         self.selected_model = selected_model
         self.validation_data_loader = None
         self.training_data_loader = None
@@ -87,6 +104,7 @@ class TrainingSuite:
         self.load_save_data_directory = load_save_data_directory
         self.load_only = load_only
         self.reset_nn = reset_nn
+        self.runner_settings = runner_settings
 
             # self.dataset = DataInputDataset(data_input_stream)
             # self.training_data, self.validation_data = torch.utils.data.random_split(self.dataset, [0.9, 0.1])
@@ -137,7 +155,7 @@ class TrainingSuite:
             self.log("Run ", i)
 
             i += 1
-            output: Tensor = self.model(X.reshape(-1, 1, 28, 28))
+            output: Tensor = self.model(X.reshape(-1, target_dataset_details.get(self.runner_settings.dataset).get("image_resolution"), *target_dataset_details.get(self.runner_settings.dataset).get("image_size")))
             if output.isnan().any() or output.isinf().any():
                 self.log("NaN/Inf values detected. Reseting local NN")
 
@@ -223,20 +241,28 @@ class TrainingSuite:
             torch.save(self.model.state_dict(), path.join(self.load_save_data_directory, f"client_{self.client_id}.pt"))
 
 
-def get_random_prediction_mnist(input_data: DataInputDataset, drifter_function=None, prediction_epoch=0, enable_drift=False):
+def get_random_prediction(input_data: DataInputDataset, dataset_name, drifter_function=None, prediction_epoch=0, enable_drift=False):
     if drifter_function is None or not enable_drift:
         drifter_function = lambda x, y, _: (x, y)
 
     data, label = input_data.random_data_label()
-    return drifter_function(data.view(1, 28, 28), label, prediction_epoch)
+    return drifter_function(data.view(1, *target_dataset_details[dataset_name].get("image_size")), label, prediction_epoch)
+
+def get_random_prediction_cifar_10(input_data: DataInputDataset, drifter_function=None, prediction_epoch=0, enable_drift=False):
+    if drifter_function is None or not enable_drift:
+        drifter_function = lambda x, y, _: (x, y)
+
+    data, label = input_data.random_data_label()
+    return drifter_function(data.view(1, 32, 32), label, prediction_epoch)
 
 def run_client(client_id, thread_runner):
     from runner import SplitLearningRunner
     thread_runner: SplitLearningRunner
+
     if thread_runner.runner_settings.labels_filter is not None:
-        mnist_input = DataInputDataset(MNISTDataInputStream(*get_separated_by_labels(thread_runner.runner_settings.labels_filter[client_id])))
+        input_data = DataInputDataset(DividedDataInputStream(*get_mnist_separated_by_labels(thread_runner.runner_settings.labels_filter[client_id])))
     else:
-        mnist_input = DataInputDataset(MNISTDataInputStream(*get_test_training_data(client_id, thread_runner.runner_settings.clients)))
+        input_data = DataInputDataset(DividedDataInputStream(*get_test_training_data(client_id, thread_runner.runner_settings.clients, input_dataset=target_dataset_details[thread_runner.runner_settings.dataset].get("dataset_input")())))
 
     drifter_function = None
     drifted_data = None
@@ -253,8 +279,11 @@ def run_client(client_id, thread_runner):
         domain_id = client_id + 1
         if len(thread_runner.runner_settings.labels_filter) >= domain_id:
             domain_id = 0
+        if thread_runner.runner_settings.dataset == "mnist":
+            drifted_data = DataInputDataset(DividedDataInputStream(*get_mnist_separated_by_labels(thread_runner.runner_settings.labels_filter[domain_id])))
+        else:
+            raise Exception("Not implemented yet")
 
-        drifted_data = DataInputDataset(MNISTDataInputStream(*get_separated_by_labels(thread_runner.runner_settings.labels_filter[domain_id])))
     elif thread_runner.runner_settings.drift_type == "temporal_drift":
         drifter_function = partial(temporal_drift, **thread_runner.runner_settings.drifter_options)
     elif thread_runner.runner_settings.drift_type == "temporal_drift_client":
@@ -264,16 +293,16 @@ def run_client(client_id, thread_runner):
     else:
         drifter_function = lambda x, y, _: (x, y)
 
-    # exit(0)mnist_input
-    # print(mnist_input.data.train_data.shape)
+    # exit(0)input_data
+    # print(input_data.data.train_data.shape)
     with TrainingSuite(client_id, optimiser=thread_runner.runner_settings.optimiser, server_opt_options= thread_runner.runner_settings.server_optimiser_options, learning_rate=thread_runner.client_learning_rate,
-                       folder=thread_runner.folder, load_save_data_directory=thread_runner.runner_settings.client_load_directory, load_only=thread_runner.runner_settings.load_only, reset_nn=thread_runner.runner_settings.reset_nn, selected_model=thread_runner.runner_settings.selected_model) as t:
-        t.set_dataset(mnist_input, drifter_function)
+                       folder=thread_runner.folder, load_save_data_directory=thread_runner.runner_settings.client_load_directory, load_only=thread_runner.runner_settings.load_only, reset_nn=thread_runner.runner_settings.reset_nn, selected_model=thread_runner.runner_settings.selected_model, runner_settings=thread_runner.runner_settings) as t:
+        t.set_dataset(input_data, drifter_function)
         list_of_last_results = []
         mode = "predict"
         last_test_check = 0
         prediction_epoch = 0
-        current_dataset = mnist_input
+        current_dataset = input_data
         start_drift = False
         train_iterations_in_client = 0
         max_train_iterations = 100
@@ -302,11 +331,15 @@ def run_client(client_id, thread_runner):
                     sleep(3)
                     break
                     # if t.test_nn() < 0.3:
-                    #     r = random.randint(0, len(mnist_input.data.test_data))
-                    #     print("Prediction", t.predict(mnist_input.data.test_data[r]), mnist_input.data.test_labels[r])
+                    #     r = random.randint(0, len(input_data.data.test_data))
+                    #     print("Prediction", t.predict(input_data.data.test_data[r]), input_data.data.test_labels[r])
 
-                    # r = random.randint(0, len(mnist_input.data.train_data))
-                    image, target_label = get_random_prediction_mnist(mnist_input)
+                    # r = random.randint(0, len(input_data.data.train_data))
+                    if thread_runner.runner_settings.dataset == "mnist":
+                        image, target_label = get_random_prediction_mnist(input_data)
+                    elif thread_runner.runner_settings.dataset == "cifar10":
+                        image, target_label = get_random_prediction_cifar_10(input_data)
+
                     p = t.predict(image)
                     pred = p['predicted'][0]
                     min_index, min_value = max(enumerate(pred), key=lambda x: x[1])
@@ -348,7 +381,7 @@ def run_client(client_id, thread_runner):
                             t.log("We are finished!")
                             break
 
-                        image, target_label = get_random_prediction_mnist(current_dataset, drifter_function, prediction_epoch, start_drift)
+                        image, target_label = get_random_prediction(current_dataset, thread_runner.runner_settings.dataset, drifter_function, prediction_epoch, start_drift)
                         p = t.predict(image, target_label, prediction_epoch)
                         t.log("Prediction ", p['item'], "should be ", target_label)
                         prediction_epoch += 1
