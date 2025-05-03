@@ -67,6 +67,27 @@ def generate_no_drift(params: Dict = DEFAULT_PARAMS):
 
     return no_drift
 
+def generate_drifts(params: Dict = DEFAULT_PARAMS):
+
+    target_runner = []
+
+    for x in model_variants:
+        model, client = x
+        target_runner.append(default.construct_runner(
+            {"collected_folder_name": f"Drift detect drift  {x[0]} Clients {x[1]} temporal",
+             "description": "Drift detect" + str(x)}, drift_detection_hiperparameters_model_settings,
+            drift_settings_temporal_drift, test_settings, get_model_variant(model, client), params))
+        target_runner.append(default.construct_runner(
+            {"collected_folder_name": f"Drift detect drift  {x[0]} Clients {x[1]} noise",
+             "description": "Drift detect" + str(x)}, drift_detection_hiperparameters_model_settings,
+            drift_settings_add_noise, test_settings, get_model_variant(model, client), params))
+        target_runner.append(default.construct_runner(
+            {"collected_folder_name": f"Drift detect drift  {x[0]} Clients {x[1]} temportal client",
+             "description": "Drift detect" + str(x)}, drift_detection_hiperparameters_model_settings,
+            drift_settings_temporal_drift_client, test_settings, get_model_variant(model, client), params))
+
+    return target_runner
+
 def objective(trial: optuna.Trial) -> float:
     # Define parameter ranges for optimization
     params = {
@@ -87,11 +108,11 @@ def objective(trial: optuna.Trial) -> float:
 def evaluate_parameters(params: Dict) -> float:
     """Evaluate parameters by constructing runner arguments."""
     a = []
-    for x in random.sample(generate_no_drift(params), 5):
+
+    for x in random.sample(generate_drifts(params), 7):
         startTime = datetime.datetime.now()
         results = SplitLearningRunner(x).start_runner()
         endTime = datetime.datetime.now()
-
         a.append((endTime - startTime).total_seconds())
 
     return sum(a) / len(a)
