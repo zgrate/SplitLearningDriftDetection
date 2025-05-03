@@ -228,6 +228,9 @@ class TrainingSuite:
                 t = torch.load(p, weights_only=True)
                 self.model.load_state_dict(t)
                 self.model.eval()
+            else:
+                self.log("WARNING! FILE NOT FOUND", p)
+                sleep(5)
 
         return self
 

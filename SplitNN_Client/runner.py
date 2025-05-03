@@ -9,7 +9,6 @@ from time import sleep
 from typing import Literal, Tuple, Self
 
 from django.utils.text import get_valid_filename
-from sympy import false
 
 from client import run_client, ClientModel, TrainingSuite
 from server_connection import ServerConnection
@@ -122,7 +121,7 @@ class RunnerArguments:
 
 class SplitLearningRunner:
 
-    def __init__(self, runner_settings: RunnerArguments):
+    def    __init__(self, runner_settings: RunnerArguments):
         self.runner_settings = runner_settings
         self.global_stop = False
         self.client_epochs_limit = runner_settings.client_epoch_limit
@@ -153,7 +152,7 @@ class SplitLearningRunner:
         # sleep(5)
         self.server_connection.prepare_runner(self.runner_settings.__dict__)
 
-        os.mkdir(self.folder)
+        os.makedirs(self.folder, exist_ok=True)
 
         threads = []
 
@@ -210,6 +209,7 @@ class SplitLearningRunner:
 
 
         self.collect_everything(data_res['server_data_folder'], self.runner_settings)
+        return data_res['results']
         # while any(t.is_alive() for t in threads):
         #     sleep(1)
 

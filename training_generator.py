@@ -337,6 +337,8 @@ for x in model_variants:
 
 
 
+
+
 all_together = [x.__dict__ for x in half_drift]
 
 print(len(all_together))

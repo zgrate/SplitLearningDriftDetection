@@ -29,6 +29,7 @@ def report_usage(method, data_len, client_id, direction_to_server=True):
 
 def report_training(loss, client_id, epoch, server_epoch, training_time, last_communication_time,
                     last_whole_training_time, mode="training"):
+    # print(training_time, last_communication_time, last_whole_training_time)
     TrainingLog(loss=loss, client_id=client_id, epoch=epoch, server_epoch=server_epoch, mode=mode,
                 training_time=training_time, last_communication_time=last_communication_time,
                 last_whole_training_time=last_whole_training_time).save()
@@ -64,6 +65,7 @@ def train(request):
     data_amount = sys.getsizeof(request.data)
 
     training_time = datetime.datetime.now()
+
     with transaction.atomic():
 
         with lock:
@@ -181,6 +183,7 @@ def save_reports(request):
         average_server_training_time=Avg("training_time"),
         std_server_training_time=StdDev("training_time"),
         minimal_loss=Min("loss"),
+        avrg_loss=Avg("loss"),
         max_client_epoch=Max("epoch"),
         server_epoch=Max("server_epoch")
     )
@@ -244,7 +247,7 @@ def save_reports(request):
     plt.xlabel("Server Epoch")
     plt.savefig(j("loss_epoch.png"))
 
-    return Response({"server_data_folder": os.path.abspath(folder)})
+    return Response({"server_data_folder": os.path.abspath(folder), "results": results})
 
 
 @api_view(['POST'])
