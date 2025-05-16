@@ -119,6 +119,21 @@ def test(request):
 
     return Response(d)
 
+@api_view(["POST"])
+def mass_prediction_request(request):
+    with transaction.atomic():
+        client_id = request.data["client_id"]
+        local_epoch = request.data["local_epoch"]
+        input_data = request.data['input_data']
+        with lock:
+            items = []
+            for input in input_data:
+                predicted = global_server_model.predict(input)
+                probabilities = torch.exp(predicted)
+                probabilities[probabilities == float("Inf")] = 0
+                items.append(torch.argmax(probabilities, dim=1).item())
+
+    return Response({"data": items})
 
 @api_view(["POST"])
 def predict(request):
@@ -294,7 +309,7 @@ def prepare_running(request):
         global_server_model.reset_local_nn(options["selected_model"])
 
 
-    global_server_model.reinit_optimiser(options["selected_model"])
+    global_server_model.reinit_optimiser(options["selected_model"], options.get("optimiser_overrides", {}).get("server_optimiser_parameters", None))
 
     return Response(options)
 

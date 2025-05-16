@@ -6,6 +6,7 @@ IP_ADDRESS = "http://localhost:8000"
 TRAIN_API = "/train/"
 TEST_API = "/test/"
 PREDICT_API = "/predict/"
+MASS_PREDICT_API = "/mass_predict/"
 RESET_API = "/reset_runner/"
 REPORT_NN_RESET = "/report_client_nn_reset/"
 PREPARE_API = "/prepare_running/"
@@ -96,3 +97,10 @@ class ServerConnection:
             return response.json()['current_client']
         else:
             return -1
+
+    def mass_prediction_request(self, input_data):
+        response = self.post(MASS_PREDICT_API, {"input_data": input_data, "client_id": str(self.client_token), "local_epoch": None})
+        if response.status_code == 200:
+            return response.json()
+        else:
+            return None

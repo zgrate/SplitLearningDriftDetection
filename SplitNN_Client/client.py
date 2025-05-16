@@ -87,6 +87,8 @@ class TrainingSuite:
             self.logger_file.write(s)
             self.logger_file.flush()
 
+    # from runner import RunnerArguments
+
     def __init__(self, client_id, optimiser="sgd", server_opt_options=dict(),
                  learning_rate=0.001, folder: str = "folder", load_save_data_directory: str = None, load_only=False, reset_nn=True, selected_model=1, runner_settings=None):
         self.selected_model = selected_model
@@ -113,20 +115,27 @@ class TrainingSuite:
             # self.validation_data_loader = DriftDatasetLoader(self.validation_data, drifter=RandomDrifter(**drifter_options),
             #                                                           batch_size=len(self.validation_data.indices))
         # optim = optimisers[optimiser]
-        self.optimizer = models[selected_model].optimiser(self.model.parameters(), **models[selected_model].optimiser_parameters)
+        params = models[selected_model].optimiser_parameters
+        if self.runner_settings and self.runner_settings.training_override:
+            params = self.runner_settings.training_override.get("optimiser_parameters", params)
+
+        self.optimizer = models[selected_model].optimiser(self.model.parameters(), **params)
 
         self.error_counter = 0
         self.last_comm_time = 0
         self.last_whole_training_time = 0
 
-    def set_dataset(self, dataset, drifter_function=None, start_epoch=0):
+    def set_dataset(self, dataset, drifter_function=None, start_epoch=0, override_batch_size_training=None, override_batch_size_validation=None):
         if drifter_function is None:
             drifter_function = lambda x,y,_ : (x,y )
 
+
+
         self.dataset = dataset
         self.training_data, self.validation_data = torch.utils.data.random_split(self.dataset, [0.9, 0.1])
+        batch_sizeer = (len(self.training_data.indices) if models[self.selected_model].batch_size == 0 else models[self.selected_model].batch_size) if override_batch_size_training is None else override_batch_size_training
         self.training_data_loader = DriftDatasetLoader(self.training_data, drifter=drifter_function, start_epoch=start_epoch,
-                                                       batch_size=len(self.training_data.indices) if models[self.selected_model].batch_size == 0 else models[self.selected_model].batch_size)
+                                                       batch_size=batch_sizeer)
         self.validation_data_loader = DriftDatasetLoader(self.validation_data, drifter=drifter_function, start_epoch=start_epoch,
                                                          batch_size=len(self.validation_data.indices))
         # self.validation_data = validation_data
@@ -205,6 +214,21 @@ class TrainingSuite:
         self.log("TEST_LOSS", sum(losses) / len(losses))
         return sum(losses) / len(losses), any_drift_attempt
 
+    def mass_prediction(self, inputs, targets):
+        self.model.eval()
+
+        partails = [self.model(x).tolist() for x in inputs]
+
+        predictions = self.server.mass_prediction_request(partails)['data']
+        num = 0
+        for i in range(len(predictions)):
+            if int(predictions[i]) == int(targets[i]):
+                num += 1
+
+
+        return num / len(predictions)
+
+
     def predict(self, input, target_label: Tensor=None, prediction_epoch=None):
         if prediction_epoch is None:
             prediction_epoch = self.epoch
@@ -216,6 +240,28 @@ class TrainingSuite:
             return []
 
         return self.server.predict_request(output, prediction_epoch, target_label.item())
+
+
+    def calculate_accuracy(self, data_driver_function, sample=10):
+        self.model.eval()
+
+        with torch.no_grad():
+            lister = []
+            prediction = []
+
+            inputs = []
+
+            for i in range(sample):
+                X, y = data_driver_function()
+                inputs.append(X)
+
+                prediction.append(y)
+
+                # prediction = int(p['item']) == y
+                # print(int(p['item']), y)
+                # lister.append(int(p['item']) == y)
+
+        return self.mass_prediction(inputs, prediction)
 
     def __enter__(self):
         self.logger_file = open(path.join(self.folder, f"client_{self.client_id}.log"), "w")
@@ -300,7 +346,12 @@ def run_client(client_id, thread_runner):
     # print(input_data.data.train_data.shape)
     with TrainingSuite(client_id, optimiser=thread_runner.runner_settings.optimiser, server_opt_options= thread_runner.runner_settings.server_optimiser_options, learning_rate=thread_runner.client_learning_rate,
                        folder=thread_runner.folder, load_save_data_directory=thread_runner.runner_settings.client_load_directory, load_only=thread_runner.runner_settings.load_only, reset_nn=thread_runner.runner_settings.reset_nn, selected_model=thread_runner.runner_settings.selected_model, runner_settings=thread_runner.runner_settings) as t:
-        t.set_dataset(input_data, drifter_function)
+        if thread_runner.runner_settings.training_override :
+            custom_batch_size = thread_runner.runner_settings.training_override.get("batch_size", None)
+        else:
+            custom_batch_size = None
+
+        t.set_dataset(input_data, drifter_function, override_batch_size_training=custom_batch_size)
         list_of_last_results = []
         mode = "predict"
         last_test_check = 0
@@ -323,7 +374,14 @@ def run_client(client_id, thread_runner):
             try:
                 if thread_runner.runner_settings.mode == "train":
                     loss = t.train_round(thread_runner.sync_mode)
-                    if thread_runner.runner_settings.absolute_target and loss < thread_runner.runner_settings.target_loss:
+                    acc = (t.calculate_accuracy(partial(get_random_prediction, current_dataset, thread_runner.runner_settings.dataset, drifter_function, prediction_epoch, start_drift), 100))
+                    print("Accuracty", acc)
+
+                    if thread_runner.runner_settings.accuracy_target_bool:
+                        if acc > thread_runner.runner_settings.accuracy_target:
+                            print("We are finished on accu!")
+                            break
+                    elif thread_runner.runner_settings.absolute_target and loss < thread_runner.runner_settings.target_loss:
                         print("We are finished!")
                         break
                     else:
@@ -359,7 +417,7 @@ def run_client(client_id, thread_runner):
                             t.log("Start the DRIFT!")
                             start_drift = True
                             if drifter_function is None:
-                                t.set_dataset(drifted_data, None)
+                                t.set_dataset(drifted_data, None, override_batch_size_training=custom_batch_size)
                                 current_dataset = drifted_data
                             else:
                                 t.set_drifting(True)
@@ -445,3 +503,4 @@ def run_client(client_id, thread_runner):
                 pass
 
         t.log("Stopping client")
+        thread_runner.add_epoch(t.epoch)

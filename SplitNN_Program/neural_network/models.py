@@ -92,9 +92,9 @@ class ServerModel:
         self.optimizer.step()
         self.optimizer.zero_grad()
 
-    def reinit_optimiser(self, model_number):
-
-        self.optimizer = server_models[model_number].optimiser(self.model.parameters(), **server_models[model_number].optimiser_parameters)
+    def reinit_optimiser(self, model_number, override_server_optimiser=None):
+        params = server_models[model_number].optimiser_parameters if override_server_optimiser is None else override_server_optimiser
+        self.optimizer = server_models[model_number].optimiser(self.model.parameters(), **params)
         print(self.optimizer)
 
     def train_input(self, input_list: list, input_labels: list, depth=0):

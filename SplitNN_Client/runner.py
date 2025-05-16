@@ -52,6 +52,9 @@ class RunnerArguments:
 
     absolute_target: bool = True
 
+    accuracy_target: float = 0.90
+    accuracy_target_bool: bool = True
+
     # optimiser to use
     optimiser: Literal["sgd", "adamw"] = "sgd"
 
@@ -112,6 +115,10 @@ class RunnerArguments:
     server_error_threshold: float = 0.2
     server_filter_last_tests: int = 50
 
+    #Custom overrides for training data
+    training_override: dict = None
+
+
     def construct_runner(self, *args: dict) -> Self:
         new_dict = {**self.__dict__}
         for d in args:
@@ -134,6 +141,7 @@ class SplitLearningRunner:
         self.client_losses = {}
         self.client_learning_rate = runner_settings.client_learning_rate
         self.testing = True
+        self.client_epochs = []
 
     def client_response(self, client_id, data):
         self.client_losses[client_id] = data['loss']
@@ -146,6 +154,9 @@ class SplitLearningRunner:
             if self.target_loss > 0 and data['loss'] <= self.target_loss:
                 print(f"We have a target loss for client! {client_id}")
                 self.global_stop = True
+
+    def add_epoch(self, epoch):
+        self.client_epochs.append(epoch)
 
     def start_runner(self):
         print("Starting runner in 5 seconds")
@@ -170,7 +181,7 @@ class SplitLearningRunner:
         signal.signal(signal.SIGINT, handler)
 
         seconds_counter = 0
-        while not self.global_stop:
+        while not self.global_stop or any([x.is_alive() for x in threads]):
             try:
                 sleep(1)
                 if all([not x.is_alive() for x in threads]):
@@ -209,6 +220,8 @@ class SplitLearningRunner:
 
 
         self.collect_everything(data_res['server_data_folder'], self.runner_settings)
+        data_res['results']["epochs_mean"] = sum(self.client_epochs) / len(self.client_epochs)
+
         return data_res['results']
         # while any(t.is_alive() for t in threads):
         #     sleep(1)
@@ -293,7 +306,7 @@ if __name__ == "__main__":
         model_variants = [
             # (0, 1),
             # (0, 2),
-            # (0, 4),
+            (0, 4),
             #(0, 8),
             # (0, 16),
               # (0, 32),
@@ -321,7 +334,7 @@ if __name__ == "__main__":
             # (3, 32)
 
             # (4, 4)
-            (6, 2)
+            # (6, 2)
 
         ]
 
@@ -553,7 +566,9 @@ if __name__ == "__main__":
         #
 
         #All Training
-        settings = [default.construct_runner({"description": str(x), "dataset": "cifar10"}, training_settings, zero_training, get_model_variant(*x)) for x in model_variants]
+        # settings = [default.construct_runner({"description": str(x), "dataset": "cifar10"}, training_settings, zero_training, get_model_variant(*x)) for x in model_variants]
+        settings = [default.construct_runner({"description": str(x), "dataset": "mnist"}, training_settings, zero_training, get_model_variant(*x)) for x in model_variants]
+
 
         #settings = settings + [default.construct_runner({"description": str(x)}, debug_test_settings, get_model_variant(*x)) for x in model_variants]
         # print(len(settings), settings)
